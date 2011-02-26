@@ -1,0 +1,186 @@
+#!/usr/bin/make -f
+# Made with the iad of dh_make, by Craig Small
+# Sample debian/rules that uses debhelper. GNU copyright 1997 by Joey Hess.
+# Also some stuff taken from debmake scripts, by Cristopt Lameter.
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+DEB_HOST_ARCH_OS := $(shell dpkg-architecture -qDEB_HOST_ARCH_OS)
+DEB_HOST_GNU_TYPE=$(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE=$(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+ifneq ($(DEB_HOST_GNU_TYPE),$(DEB_BUILD_GNU_TYPE))
+CROSS=CC=$(DEB_HOST_GNU_TYPE)-gcc
+else
+CROSS=
+endif
+
+DESTDIR = `pwd`/debian/tmp
+
+PACKAGE = isc-dhcp
+
+include /usr/share/dpatch/dpatch.make
+
+CFLAGS = -Wall -g
+INSTALL = install
+INSTALL_FILE 	= $(INSTALL) -p -o root -g root -m 644
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+CFLAGS += -O0
+else
+CFLAGS += -O2
+endif
+
+CFLAGS += -D_PATH_DHCLIENT_SCRIPT='"/sbin/dhclient-script"'
+CFLAGS += -D_PATH_DHCPD_CONF='"/etc/dhcp/dhcpd.conf"'
+CFLAGS += -D_PATH_DHCLIENT_CONF='"/etc/dhcp/dhclient.conf"'
+CFLAGS += -DNOMINUM
+
+patched-ldap/build-stamp:
+	dh_testdir
+
+	aclocal
+	autoconf
+	autoheader
+	automake --foreign --add-missing --copy
+	
+	./configure \
+		--prefix=$(DESTDIR)/usr \
+		--sysconfdir=$(DESTDIR)/etc/dhcp \
+		--with-srv-lease-file=/var/lib/dhcp/dhcpd.leases \
+		--with-srv6-lease-file=/var/lib/dhcp/dhcpd6.leases \
+		--with-cli-lease-file=/var/lib/dhcp/dhclient.leases \
+		--with-cli6-lease-file=/var/lib/dhcp/dhclient6.leases \
+		--enable-ldap-conf --disable-ldap-casa
+		
+	for f in common ../minires ../dst ../omapip ../dhcpctl ../server; do \
+		cd $$f;\
+		$(MAKE) $(CROSS);\
+	done
+	mkdir -p patched-ldap
+	mv server/dhcpd patched-ldap/
+	
+	touch $@
+	
+build: patch-stamp build-stamp
+
+build-stamp: patched-ldap/build-stamp
+
+	dpatch deapply-until dhcp-4.1.0-ldap-code
+
+	aclocal
+	autoconf
+	autoheader
+	automake --foreign --add-missing --copy
+	
+	./configure \
+		--prefix=$(DESTDIR)/usr \
+		--sysconfdir=$(DESTDIR)/etc/dhcp \
+		--with-srv-lease-file=/var/lib/dhcp/dhcpd.leases \
+		--with-srv6-lease-file=/var/lib/dhcp/dhcpd6.leases \
+		--with-cli-lease-file=/var/lib/dhcp/dhclient.leases \
+		--with-cli6-lease-file=/var/lib/dhcp/dhclient6.leases
+	
+	$(MAKE) $(CROSS)
+
+	touch build-stamp
+
+clean: unpatch
+	dh_testdir
+	rm -f build-stamp install-stamp
+	rm -Rf patched-ldap
+
+	[ ! -f Makefile ] || $(MAKE) distclean
+
+	debconf-updatepo
+	dh_clean
+
+install: install-stamp
+install-stamp: build-stamp
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs -A
+
+	# Add here commands to install the package into debian/tmp.
+	$(MAKE) install
+
+	mkdir -p $(DESTDIR)/etc/dhcp
+
+	# Install dhcp's conffile.
+	$(INSTALL_FILE) -m 644 debian/dhcpd.conf $(DESTDIR)/etc/dhcp
+
+	# Install dhcp-client's conffiles.
+	$(INSTALL_FILE) -m 644 debian/dhclient.conf $(DESTDIR)/etc/dhcp
+
+	# udeb needs simplified dhclient script
+	$(INSTALL_FILE) -m 755 `pwd`/debian/dhclient-script.$(DEB_HOST_ARCH_OS).udeb \
+		`pwd`/debian/isc-dhcp-client-udeb/sbin/dhclient-script
+
+	# Weird, weird Japanese manpages in weird, weird locations
+	# need to be special-cased...
+	mkdir -p $(DESTDIR)/usr/share/man/ja/man5
+	for f in dhclient.conf dhcp-eval dhclient.leases dhcp-options; do \
+		cp doc/ja_JP.eucJP/$$f.5 \
+			$(DESTDIR)/usr/share/man/ja/man5; \
+	done
+
+	mkdir -p $(DESTDIR)/usr/share/man/ja/man8
+	for f in dhclient dhclient-script; do \
+		cp doc/ja_JP.eucJP/$$f.8 \
+			$(DESTDIR)/usr/share/man/ja/man8; \
+	done
+
+	cp debian/debug-enter debian/isc-dhcp-client/etc/dhcp/dhclient-enter-hooks.d/debug
+	cp debian/debug-exit debian/isc-dhcp-client/etc/dhcp/dhclient-exit-hooks.d/debug
+	cp debian/rfc3442-classless-routes debian/isc-dhcp-client/etc/dhcp/dhclient-exit-hooks.d
+
+	dh_install
+
+	cp debian/dhclient-script.$(DEB_HOST_ARCH_OS) `pwd`/debian/isc-dhcp-client/sbin/dhclient-script
+
+	# Install Linux specific documentation
+ifeq ($(DEB_HOST_ARCH_OS), linux)
+	for p in isc-dhcp-client isc-dhcp-relay isc-dhcp-server ; do \
+		install -d -m 755 `pwd`/debian/$p/usr/share/doc; \
+		install -m 644 `pwd`/debian/dhcp-on-linux.txt `pwd`/debian/$p/usr/share/doc; \
+	done
+endif
+	dh_lintian
+
+	touch install-stamp
+
+# Build architecture-dependent files here (this package does not contain
+#	architecture-independent files).
+binary-arch: build install
+	dh_testdir
+	dh_testroot 
+	dh_installdebconf
+	dh_installdocs -A debian/README.Debian -X doc/ja_JP.eucJP
+	dh_installdocs -pisc-dhcp-server-ldap contrib/dhcpd-conf-to-ldap.pl	
+	dh_installexamples -a
+	dh_installinit -pisc-dhcp-server --error-handler=init_script_error_handler
+	dh_installinit -a -Nisc-dhcp-server
+	dh_installchangelogs
+	dh_installchangelogs -pisc-dhcp-server-ldap Changelog-LDAP 
+	dh_install -pisc-dhcp-server-ldap	
+	dh_strip -pisc-dhcp-server-ldap 
+	dh_strip -pisc-dhcp-server --dbg-package=isc-dhcp-server-dbg
+	dh_strip -pisc-dhcp-relay --dbg-package=isc-dhcp-relay-dbg
+	dh_strip -pisc-dhcp-client --dbg-package=isc-dhcp-client-dbg
+	dh_strip -pisc-dhcp-common
+	dh_strip -pisc-dhcp-client-udeb 
+	dh_compress
+	dh_fixperms -a
+	dh_installdeb
+	dh_shlibdeps -a
+	dh_gencontrol
+	dh_md5sums -a --no-package=isc-dhcp-client-udeb
+	dh_builddeb
+
+source diff:                                                                  
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+binary: binary-arch
+.PHONY: build clean binary-indep binary-arch binary
