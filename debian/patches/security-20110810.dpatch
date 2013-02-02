@@ -1,0 +1,66 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## security-20110810.dpatch by  <fw@deneb.enyo.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' git.squeeze~/common/discover.c git.squeeze/common/discover.c
+--- git.squeeze~/common/discover.c	2011-08-09 20:19:14.000000000 +0200
++++ git.squeeze/common/discover.c	2011-08-09 20:19:38.746816380 +0200
+@@ -1378,12 +1378,16 @@
+ 	if (result == 0)
+ 		return ISC_R_UNEXPECTED;
+ 
+-	/* If we didn't at least get the fixed portion of the BOOTP
+-	   packet, drop the packet.  We're allowing packets with no
+-	   sname or filename, because we're aware of at least one
+-	   client that sends such packets, but this definitely falls
+-	   into the category of being forgiving. */
+-	if (result < DHCP_FIXED_NON_UDP - DHCP_SNAME_LEN - DHCP_FILE_LEN)
++	/*
++	 * If we didn't at least get the fixed portion of the BOOTP
++	 * packet, drop the packet.
++	 * Previously we allowed packets with no sname or filename
++	 * as we were aware of at least one client that did.  But
++	 * a bug caused short packets to not work and nobody has
++	 * complained, it seems rational to tighten up that
++	 * restriction.
++	 */
++	if (result < DHCP_FIXED_NON_UDP)
+ 		return ISC_R_UNEXPECTED;
+ 
+ 	if (bootp_packet_handler) {
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' git.squeeze~/common/options.c git.squeeze/common/options.c
+--- git.squeeze~/common/options.c	2011-08-09 20:19:14.000000000 +0200
++++ git.squeeze/common/options.c	2011-08-09 20:19:38.746816380 +0200
+@@ -592,8 +592,8 @@
+ 	} else if (bootpp) {
+ 		mb_size = 64;
+ 		if (inpacket != NULL &&
+-		    (inpacket->packet_length - DHCP_FIXED_LEN >= 64))
+-			mb_size = inpacket->packet_length - DHCP_FIXED_LEN;
++		    (inpacket->packet_length >= 64 + DHCP_FIXED_NON_UDP))
++			mb_size = inpacket->packet_length - DHCP_FIXED_NON_UDP;
+ 	} else
+ 		mb_size = DHCP_MIN_OPTION_LEN;
+ 
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' git.squeeze~/server/dhcp.c git.squeeze/server/dhcp.c
+--- git.squeeze~/server/dhcp.c	2011-08-09 20:19:14.000000000 +0200
++++ git.squeeze/server/dhcp.c	2011-08-09 20:19:38.757645631 +0200
+@@ -1526,6 +1526,7 @@
+ 	 * by the user into the new state, not just give up.
+ 	 */
+ 	if (!packet->agent_options_stashed &&
++	    (packet->options != NULL) &&
+ 	    packet->options->universe_count > agent_universe.index &&
+ 	    packet->options->universes[agent_universe.index] != NULL &&
+ 	    (state->options->universe_count <= agent_universe.index ||
+@@ -2331,6 +2332,7 @@
+ 	 * giaddr.
+ 	 */
+ 	if (!packet->agent_options_stashed &&
++	    (packet->options != NULL) &&
+ 	    packet->options->universe_count > agent_universe.index &&
+ 	    packet->options->universes[agent_universe.index] != NULL) {
+ 	    oc = lookup_option (&server_universe, state -> options,

@@ -1,3 +1,48 @@
+isc-dhcp (4.1.1-P1-15+squeeze8) squeeze-security; urgency=high
+
+  * Non-maintainer upload.
+  * Fix DoS in some situations via changing IPv6 lease expiration
+    times (CVE-2012-3955).
+
+ -- Nico Golde <nion@debian.org>  Sat, 21 Sep 2012 13:42:16 +0000
+
+isc-dhcp (4.1.1-P1-15+squeeze6) squeeze-security; urgency=high
+
+  * Non-maintainer upload by the Security Team.
+  * Reorder patches in 00list as it seems some are deapplied during the
+    build process. Thanks Mark Deslauriers for spotting this.
+ 
+ -- Nico Golde <nion@debian.org>  Thu, 02 Aug 2012 17:32:44 +0000
+
+isc-dhcp (4.1.1-P1-15+squeeze5) squeeze-security; urgency=high
+
+  * Non-maintainer upload by the Security Team.
+  * Make sure patches for 4.1.1-P1-15+squeeze4 are correctly applied
+  * Fix CVE-2011-4539: DoS when processing evaluated regular expressions.
+ 
+ -- Nico Golde <nion@debian.org>  Tue, 31 Jul 2012 17:32:44 +0000
+
+isc-dhcp (4.1.1-P1-15+squeeze4) squeeze-security; urgency=high
+
+  * Non-maintainer upload by the Security Team.
+  * Backport upstream changes for the following security issues:
+    - CVE-2012-3954: memory leaks in dhcpv6 mode
+    - CVE-2012-3571: DoS via malformed client ids
+
+ -- Nico Golde <nion@debian.org>  Wed, 24 Jul 2012 11:03:40 +0000
+
+isc-dhcp (4.1.1-P1-15+squeeze3) squeeze-security; urgency=high
+
+  * Apply patch from ISC to fix CVE-2011-2748 and CVE-2011-2749.
+
+ -- Florian Weimer <fw@deneb.enyo.de>  Tue, 09 Aug 2011 20:20:35 +0200
+
+isc-dhcp (4.1.1-P1-15+squeeze2) stable-security; urgency=high
+
+  * Fix cve-2011-0997: remote code execution vulnerability in dhclient.
+
+ -- Michael Gilbert <michael.s.gilbert@gmail.com>  Sat, 09 Apr 2011 17:13:36 +0000
+
 isc-dhcp (4.1.1-P1-15+squeeze1) stable-security; urgency=high
 
   * Non-maintainer upload.

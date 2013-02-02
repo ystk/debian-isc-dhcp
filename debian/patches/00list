@@ -13,6 +13,10 @@ no_loopback_checksum
 CVE-2010-3611
 # Backported from 4.1-ESV
 CVE-2011-0413
+CVE-2011-0997
+security-20110810
+CVE-2012-3571_CVE-2012-3954
+CVE-2011-4539_CVE-2012-3955
 
 # must be applied before the LDAP stuff
 no-libcrypto
@@ -20,3 +24,4 @@ no-libcrypto
 #ldap backend for dhcp server (docs and code)
 dhcp-4.1.0-ldap-docs
 dhcp-4.1.0-ldap-code
+
