@@ -1,9 +1,214 @@
-isc-dhcp (4.1.1-P1-15+squeeze1) stable-security; urgency=high
+isc-dhcp (4.2.2.dfsg.1-5+deb70u6) stable-proposed-updates; urgency=medium
+
+  * Set --with-ldapcrypto to restore openssl support (closes: #692808).
+
+ -- Michael Gilbert <mgilbert@debian.org>  Mon, 27 May 2013 20:54:36 +0000
+
+isc-dhcp (4.2.2.dfsg.1-5+deb70u5) testing-proposed-updates; urgency=medium
+
+  * Use patch instead of quilt for embedded bind patches.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Fri, 12 Apr 2013 02:06:54 +0000
+
+isc-dhcp (4.2.2.dfsg.1-5+deb70u4) testing-proposed-updates; urgency=high
+
+  * Fix cve-2013-2494: issues with regular expression handling in the embedded
+    bind library (closes: #704426).
+
+ -- Michael Gilbert <mgilbert@debian.org>  Mon, 01 Apr 2013 00:41:48 +0000
+
+isc-dhcp (4.2.2.dfsg.1-5+deb70u3) testing-proposed-updates; urgency=medium
+
+  * Run exit hooks when "dhclient -1" fails (closes: #486520).
+  * Add dhcp6.name-servers and dhcp6.domain-search to the default request
+    options in dhclient.conf (closes: #693315).
+  * Handle dhclient.conf left behind during a prior lenny->squeeze upgrade,
+    upgrade it now to avoid an unnecessary conffile prompt (closes: #698582).
+    - Thanks to Gregor Herrmann for the patch.
+  * Also, do not copy dhclient.conf from /etc/dhcp3 anymore (closes: #700363).
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 16 Feb 2013 20:40:46 +0000
+
+isc-dhcp (4.2.2.dfsg.1-5+deb70u2) testing-proposed-updates; urgency=high
+
+  * Non-maintainer upload by the Security Team.
+  * Fix CVE-2012-2248: dhclient sets a PATH that is influenced by the
+    location of the build directory.
+
+ -- Raphael Geissert <geissert@debian.org>  Sun, 14 Oct 2012 15:48:19 -0500
+
+isc-dhcp (4.2.2.dfsg.1-5+deb70u1) testing-proposed-updates; urgency=high
+
+  * Correct multiple security issues (closes: #686174)
+    - cve-2012-3570: buffer overflow via large hardware address lengths.
+    - cve-2012-3571: denial-of-service via zero-length packets.
+    - cve-2012-3954: two potential memory leaks.
+    - cve-2012-3955: server abort due to certain lease time changes.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Fri, 14 Sep 2012 00:26:44 -0400
+
+isc-dhcp (4.2.2.dfsg.1-5) unstable; urgency=medium
+
+  [ Andrew Pollock ]
+  * debian/dhclient.conf: send the hostname (closes: #151820) 
+
+  [ Michael Gilbert ]
+  * Fix cve-2011-4868: error in DDNS handling with IPv6 (closes: #655746)
+  * Fix cve-2011-4539: error in regular expression handling
+    (closes: #652259)
+  * Make dependencies diff-able
+  * Add myself to uploaders
+  * Remove all automatically generated files in clean rule
+  * Medium urgency for security updates
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 28 Apr 2012 16:00:49 -0400
+
+isc-dhcp (4.2.2.dfsg.1-4) unstable; urgency=low
+
+  * The "Zoe woke up at 4am and I couldn't get back to sleep so I had some
+    extra time to work on this" release
+  * patch the Makefile for the embedded BIND libraries so that autoconf is run
+    so that the modification to configure.in to fix the FTBFS on kFreeBSD
+    actually does something useful (closes: #643569)
+
+ -- Andrew Pollock <apollock@debian.org>  Wed, 14 Mar 2012 06:25:28 -0700
+
+isc-dhcp (4.2.2.dfsg.1-3) unstable; urgency=low
+
+  * debian/control: remove transitional packages
+  * debian/rules: apply the intent of Pierre Chifflier's patch to enable
+    hardening options (closes: #644413)
+  * debian/control: also add inetutils-ping to the dependencies for
+    isc-dhcp-client on hurd (closes: #648140)
+  * Convert to 3.0 (quilt) source format:
+    - debian/control: remove build-dep on dpatch
+    - debian/rules: stop including dpatch.make
+    - debian/rules: remove dpatch-related target dependencies
+    - convert patches from dpatch to pure quilt
+    - remove debian/README.source
+  * debian/rules: cleaned up the target names a bit to reflect the lack of
+    patching going on now
+  * repack bind.tar.gz in upstream source tarball to patch configure.in for
+    FTBFS on kFreeBSD and remove RFCs (closes: #643569, #645760)
+  * debian/watch: add dversionmangle to deal with dfsg upstream tarball
+  * Updated Dutch debconf template translation (closes: #651396)
+  * Added Polish debconf template translation (closes: #659372)
+  * Updated Brazilian Portugeuse debconf template translation (closes: #663494)
+  * debian/control: bumped Standards-Version (no changes)
+
+ -- Andrew Pollock <apollock@debian.org>  Tue, 13 Mar 2012 22:04:53 -0700
+
+isc-dhcp (4.2.2-2) unstable; urgency=low
+
+  * debian/rules: use dpkg-buildflags to set CFLAGS, and export CFLAGS (closes:
+    #643470)
+  * debian/dhclient.conf: revert hostname setting behaviour to something
+    equivalent to what upstream ships to avoid surprising people with unwanted
+    hostname changes when changing networks (closes: #648676)
+  * debian/dhclient-script.kfreebsd: apply patch from Robert Millan to resync
+    dhclient-script with FreeBSD version (closes: #645502)
+  * debian/control: add inetutils-ping to the dependencies for isc-dhcp-client
+    on kfreebsd (closes: #648140)
+  * Updated German debconf template translation (closes: #641843)
+  * added harding-wrapper to build dependencies and invoke it in debian/rules
+    (closes: #611192)
+
+ -- Andrew Pollock <apollock@debian.org>  Sat, 19 Nov 2011 21:37:24 -0800
+
+isc-dhcp (4.2.2-1) unstable; urgency=low
+
+  * New upstream release, includes security fixes for CVE-2011-2748 and
+    CVE-2011-2749 (closes: #638404)
+  * Remove obsolete patches, refit remaining patches
+  * Remove LDAP patch, it's finally upstream now (yay!)
+  * debian/rules: adjust double build for the non-existence of the LDAP patch
+  * debian/isc-dhcp-server-ldap.docs: update for new location of documentation
+  * debian/rules: added build-arch and build-indep targets
+  * debian/rules: applied patch from Kees Cook to call dh_link (closes: #614992)
+  * debian/dhclient-script.linux: applied patch from Colin Watson to make
+    dhclient-script support stateless DHCPv6 (closes: #632888) 
+  * debian/dhclient-script.linux: fix regression for MTU <= 576 handling
+    (closes: #638267)
+  * Apply patch from Peter Marschall to split the rfc3442-classless-routes hook
+    into a Linux and a kFreeBSD variant, so that the Linux one can use iproute
+    (closes: #630519)
+  * debian/isc-dhcp-server.postinst: apply patch from Peter Marschall to
+    document new variables in /etc/default/isc-dhcp-server
+  * debian/isc-dhcp-server.init.d: apply patch from Peter Marschall to
+    - make the name of the default file configurable
+    - make the name of the server configuration file configurable (closes:
+      #590158, #565650)
+    - allow passing additional options to dhcpd (closes: #613734)
+    - read PID from config file
+  * Add Catalan debconf template translation (closes: #628372)
+  * debian/isc-dhcp-client,dhcp3-client}.links: apply patch from Peter
+    Marschall to move old compatibility links to the old compatibility package
+    (closes: #614992)
+  * debian/isc-dhcp-server.postinst: apply patch from Peter Marschall to fix
+    comment in /etc/default/isc-dhcp-server (closes: #616417)
+  * debian/control: apply patch from Peter Marschall to add a Provides:
+    dhcp-client to isc-dhcp-client (closes: #236001)
+  * debian/dhclient-script.{linux,kfreebsd}: apply patch from Peter Marschall
+    to fix metric calculation (closes: #629632)
+  * debian/dhclient-script.linux: apply patches from Peter Marschall to support
+    IPv6 link-local resolvers
+  * debian/dhclient-script.{linux,kfreebsd}: applied patch from Peter Marschall
+    to factor out the hostname setting to a separate function
+  * debian/dhclient-script.{linux,kfreebsd}: applied patch from Peter Marschall
+    to harmonize the logic for setting the hostname (closes: #246155)
+  * apply patch from Peter Marschall to use one common script for the debug
+    hooks
+  * debian/rfc3442-classless-routes.{linux,kfreebsd}: applied patch from Peter
+    Marschall to take care of link-local routes (closes: #521024)
+  * debian/dhclient-script.*: apply patch from Peter Marschall to use alternate
+    value expansion
+  * debian/isc-dhcp-server.postinst: eliminate an error message from sed if no
+    interfaces are provided 
+
+ -- Andrew Pollock <apollock@debian.org>  Sun, 28 Aug 2011 22:12:21 -0700
+
+isc-dhcp (4.1.1-P1-18) unstable; urgency=low
+
+  * debian/control: fix short description for dhcp3-client package
+  * debian/rfc3442-classless-routes: convert to using iproute (closes: #630519)
+
+ -- Andrew Pollock <apollock@debian.org>  Sat, 18 Jun 2011 10:07:16 -0700
+
+isc-dhcp (4.1.1-P1-17) unstable; urgency=low
+
+  * Incorporate and acknowledge NMU
+  * Apply a multitude of patches from Peter Marschall (closes: #609408)
+    - fix domain_name in domain_search check in dhclient-script 
+      (closes: #567141)
+    - fix indentation in dhclient-script to improve readability
+    - remove bashisms from dhclient-script
+    - fix setting of hostname in dhclient-script
+    - remove bashisms from rfc3442-classless-routes hook
+    - check for $new_domain_search in dhclient-script
+    - synchronize the Linux dhclient-script more with the kFreeBSD one
+    - general readability improvements to dhclient-script
+    - add DHCPv6 support to the Linux dhclient-script (closes: #591589)
+    - expand the variables reported by the debug hooks
+    - remove unused variables from dhclient-script
+    - convert the Linux dhclient-script to use iproute2 (closes: #275653)
+  * debian/control: bumped Standards-Version (no changes)
+
+ -- Andrew Pollock <apollock@debian.org>  Wed, 18 May 2011 23:02:44 -0700
+
+isc-dhcp (4.1.1-P1-16.1) unstable; urgency=high
 
   * Non-maintainer upload.
-  * Fix cve-2011-0413: remote ipv6 denial-of-service (daemon crash). 
+  * Fix cve-2011-0997: remote code execution vulnerability in dhclient
+    (closes: #621099).
+  * Fix ftbfs with 'ld --no-as-needed' (closes: #602312).
 
- -- Michael Gilbert <michael.s.gilbert@gmail.com>  Sat, 26 Feb 2011 16:24:06 -0500
+ -- Michael Gilbert <michael.s.gilbert@gmail.com>  Sat, 09 Apr 2011 10:57:14 -0400
+
+isc-dhcp (4.1.1-P1-16) unstable; urgency=high
+
+  * Patch by Raphael Geissert from 4.1-ESV for CVE-2011-0413 (closes: #611217)
+
+ -- Andrew Pollock <apollock@debian.org>  Thu, 03 Feb 2011 22:20:55 -0800
 
 isc-dhcp (4.1.1-P1-15) unstable; urgency=low
 

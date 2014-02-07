@@ -16,67 +16,67 @@ else
 CROSS=
 endif
 
+export DEB_BUILD_HARDENING=1
+DPKG_EXPORT_BUILDFLAGS = 1
+
 DESTDIR = `pwd`/debian/tmp
 
 PACKAGE = isc-dhcp
 
-include /usr/share/dpatch/dpatch.make
+-include /usr/share/dpkg/buildflags.mk
 
-CFLAGS = -Wall -g
 INSTALL = install
 INSTALL_FILE 	= $(INSTALL) -p -o root -g root -m 644
 
-ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
-CFLAGS += -O0
-else
-CFLAGS += -O2
-endif
+CFLAGS += -Wall
 
 CFLAGS += -D_PATH_DHCLIENT_SCRIPT='"/sbin/dhclient-script"'
 CFLAGS += -D_PATH_DHCPD_CONF='"/etc/dhcp/dhcpd.conf"'
 CFLAGS += -D_PATH_DHCLIENT_CONF='"/etc/dhcp/dhclient.conf"'
 CFLAGS += -DNOMINUM
 
-patched-ldap/build-stamp:
+
+bind-stamp:
+	dh_testdir
+	cd bind && tar xf bind.tar.gz && cd bind-* && \
+	    patch -p1 < ../../debian/bind-patches/cve-2013-2494.patch
+	touch $@
+
+build-ldap-stamp: bind-stamp
 	dh_testdir
 
-	aclocal
-	autoconf
-	autoheader
-	automake --foreign --add-missing --copy
-	
 	./configure \
-		--prefix=$(DESTDIR)/usr \
-		--sysconfdir=$(DESTDIR)/etc/dhcp \
+		--prefix=/usr \
+		--sysconfdir=/etc/dhcp \
 		--with-srv-lease-file=/var/lib/dhcp/dhcpd.leases \
 		--with-srv6-lease-file=/var/lib/dhcp/dhcpd6.leases \
 		--with-cli-lease-file=/var/lib/dhcp/dhclient.leases \
 		--with-cli6-lease-file=/var/lib/dhcp/dhclient6.leases \
-		--enable-ldap-conf --disable-ldap-casa
+		--with-ldap \
+		--with-ldapcrypto \
 		
-	for f in common ../minires ../dst ../omapip ../dhcpctl ../server; do \
-		cd $$f;\
-		$(MAKE) $(CROSS);\
-	done
-	mkdir -p patched-ldap
-	mv server/dhcpd patched-ldap/
+	$(MAKE) $(CROSS)
+
+	mkdir -p isc-dhcp-server-ldap
+	mv server/dhcpd isc-dhcp-server-ldap/
 	
 	touch $@
 	
-build: patch-stamp build-stamp
+build: build-arch build-indep
 
-build-stamp: patched-ldap/build-stamp
+build-arch: build-ldap-stamp build-non-ldap-stamp build-arch-stamp
+build-indep:
 
-	dpatch deapply-until dhcp-4.1.0-ldap-code
+build-arch-stamp:
+	dh_testdir
+	touch $@
 
-	aclocal
-	autoconf
-	autoheader
-	automake --foreign --add-missing --copy
-	
+build-non-ldap-stamp: bind-stamp
+	dh_testdir
+
 	./configure \
-		--prefix=$(DESTDIR)/usr \
-		--sysconfdir=$(DESTDIR)/etc/dhcp \
+		--prefix=/usr \
+		--sysconfdir=/etc/dhcp \
 		--with-srv-lease-file=/var/lib/dhcp/dhcpd.leases \
 		--with-srv6-lease-file=/var/lib/dhcp/dhcpd6.leases \
 		--with-cli-lease-file=/var/lib/dhcp/dhclient.leases \
@@ -84,27 +84,30 @@ build-stamp: patched-ldap/build-stamp
 	
 	$(MAKE) $(CROSS)
 
-	touch build-stamp
+	touch $@
 
-clean: unpatch
+clean:
 	dh_testdir
-	rm -f build-stamp install-stamp
-	rm -Rf patched-ldap
+	rm -f build*stamp install*stamp bind-stamp
+	rm -Rf isc-dhcp-server-ldap
 
 	[ ! -f Makefile ] || $(MAKE) distclean
+	rm -f Makefile client/Makefile config.log config.status
+	cd bind && rm -rf bind-* include lib bindvar.tmp \
+	    build.log configure.log install.log
 
 	debconf-updatepo
 	dh_clean
 
 install: install-stamp
-install-stamp: build-stamp
+install-stamp: build-ldap-stamp build-non-ldap-stamp
 	dh_testdir
 	dh_testroot
 	dh_prep
 	dh_installdirs -A
 
 	# Add here commands to install the package into debian/tmp.
-	$(MAKE) install
+	$(MAKE) install DESTDIR=$(DESTDIR)
 
 	mkdir -p $(DESTDIR)/etc/dhcp
 
@@ -132,13 +135,15 @@ install-stamp: build-stamp
 			$(DESTDIR)/usr/share/man/ja/man8; \
 	done
 
-	cp debian/debug-enter debian/isc-dhcp-client/etc/dhcp/dhclient-enter-hooks.d/debug
-	cp debian/debug-exit debian/isc-dhcp-client/etc/dhcp/dhclient-exit-hooks.d/debug
-	cp debian/rfc3442-classless-routes debian/isc-dhcp-client/etc/dhcp/dhclient-exit-hooks.d
+	cp debian/debug-hook debian/isc-dhcp-client/etc/dhcp/dhclient-enter-hooks.d/debug
+	cp debian/debug-hook debian/isc-dhcp-client/etc/dhcp/dhclient-exit-hooks.d/debug
 
 	dh_install
+	dh_link
 
 	cp debian/dhclient-script.$(DEB_HOST_ARCH_OS) `pwd`/debian/isc-dhcp-client/sbin/dhclient-script
+	cp debian/rfc3442-classless-routes.$(DEB_HOST_ARCH_OS) \
+		`pwd`/debian/isc-dhcp-client/etc/dhcp/dhclient-exit-hooks.d/rfc3442-classless-routes
 
 	# Install Linux specific documentation
 ifeq ($(DEB_HOST_ARCH_OS), linux)
@@ -149,21 +154,19 @@ ifeq ($(DEB_HOST_ARCH_OS), linux)
 endif
 	dh_lintian
 
-	touch install-stamp
+	touch $@
 
 # Build architecture-dependent files here (this package does not contain
 #	architecture-independent files).
-binary-arch: build install
+binary-arch: build-arch install
 	dh_testdir
 	dh_testroot 
 	dh_installdebconf
 	dh_installdocs -A debian/README.Debian -X doc/ja_JP.eucJP
-	dh_installdocs -pisc-dhcp-server-ldap contrib/dhcpd-conf-to-ldap.pl	
 	dh_installexamples -a
 	dh_installinit -pisc-dhcp-server --error-handler=init_script_error_handler
 	dh_installinit -a -Nisc-dhcp-server
 	dh_installchangelogs
-	dh_installchangelogs -pisc-dhcp-server-ldap Changelog-LDAP 
 	dh_install -pisc-dhcp-server-ldap	
 	dh_strip -pisc-dhcp-server-ldap 
 	dh_strip -pisc-dhcp-server --dbg-package=isc-dhcp-server-dbg
@@ -179,8 +182,8 @@ binary-arch: build install
 	dh_md5sums -a --no-package=isc-dhcp-client-udeb
 	dh_builddeb
 
-source diff:                                                                  
-	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+binary-indep: build-indep
 
-binary: binary-arch
+binary: binary-arch binary-indep
+
 .PHONY: build clean binary-indep binary-arch binary

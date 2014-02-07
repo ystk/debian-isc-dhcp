@@ -1,0 +1,16 @@
+Description: Run exit hooks when "dhclient -1" fails (closes: #486520).
+Author: Martin Pitt <martin.pitt@ubuntu.com>
+Bug-Debian: http://bugs.debian.org/486520
+Index: isc-dhcp-4.2.2.dfsg.1/client/dhclient.c
+===================================================================
+--- isc-dhcp-4.2.2.dfsg.1.orig/client/dhclient.c	2012-12-25 15:00:44.030394263 +0000
++++ isc-dhcp-4.2.2.dfsg.1/client/dhclient.c	2012-12-25 15:00:44.198394269 +0000
+@@ -2015,6 +2015,8 @@
+ 		if (!quiet)
+ 			log_info ("Unable to obtain a lease on first try.%s",
+ 				  "  Exiting.");
++		script_init (client, "FAIL", (struct string_list *)0);
++		script_go (client);
+ 		exit (2);
+ 	}
+ 
