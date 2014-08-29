@@ -1,10 +1,13 @@
-# $Id: version,v 1.53.8.2.2.4 2011-06-21 20:44:01 each Exp $
+# $Id$
 # 
 # This file must follow /bin/sh rules.  It is imported directly via
 # configure.
 #
+PRODUCT=BIND
+DESCRIPTION="(Extended Support Version)"
 MAJORVER=9
-MINORVER=8
-PATCHVER=0
+MINORVER=9
+PATCHVER=5
 RELEASETYPE=-P
-RELEASEVER=4
+RELEASEVER=1
+EXTENSIONS=

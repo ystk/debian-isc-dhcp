@@ -3,7 +3,7 @@
    DHCP options parsing and reassembly. */
 
 /*
- * Copyright (c) 2004-2011 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2012,2014 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -24,12 +24,6 @@
  *   <info@isc.org>
  *   https://www.isc.org/
  *
- * This software has been written for Internet Systems Consortium
- * by Ted Lemon in cooperation with Vixie Enterprises and Nominum, Inc.
- * To learn more about Internet Systems Consortium, see
- * ``https://www.isc.org/''.  To learn more about Vixie Enterprises,
- * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
- * ``http://www.nominum.com''.
  */
 
 #define DHCP_OPTION_DATA
@@ -258,9 +252,14 @@ int parse_option_buffer (options, buffer, length, universe)
 				option_cache_reference(&op->next, nop, MDL);
 				option_cache_dereference(&nop, MDL);
 			} else {
-				save_option_buffer(universe, options, bp,
-						   bp->data + offset, len,
-						   code, 1);
+				if (save_option_buffer(universe, options, bp,
+						       bp->data + offset, len,
+						       code, 1) == 0) {
+					log_error("parse_option_buffer: "
+						  "save_option_buffer failed");
+					buffer_dereference(&bp, MDL);
+					return 0;
+				}
 			}
 		}
 		option_dereference(&option, MDL);
@@ -517,6 +516,8 @@ int fqdn_universe_decode (struct option_state *options,
  * Load all options into a buffer, and then split them out into the three
  * separate fields in the dhcp packet (options, file, and sname) where
  * options can be stored.
+ *
+ * returns 0 on error, length of packet on success
  */
 int
 cons_options(struct packet *inpacket, struct dhcp_packet *outpacket,
@@ -553,10 +554,10 @@ cons_options(struct packet *inpacket, struct dhcp_packet *outpacket,
 
 	if (inpacket &&
 	    (op = lookup_option(&dhcp_universe, inpacket->options,
-				 DHO_DHCP_MAX_MESSAGE_SIZE))) {
-		evaluate_option_cache(&ds, inpacket,
-				       lease, client_state, in_options,
-				       cfg_options, scope, op, MDL);
+				DHO_DHCP_MAX_MESSAGE_SIZE)) &&
+	    (evaluate_option_cache(&ds, inpacket, lease,
+				   client_state, in_options,
+				   cfg_options, scope, op, MDL) != 0)) {
 		if (ds.len >= sizeof (u_int16_t)) {
 			i = getUShort(ds.data);
 			if(!mms || (i < mms))
@@ -622,7 +623,10 @@ cons_options(struct packet *inpacket, struct dhcp_packet *outpacket,
 	 * Set offsets for buffer data to be copied into filename
 	 * and servername fields 
 	 */
-	mb_max = mb_size;
+	if (mb_size > agent_size)
+		mb_max = mb_size - agent_size;
+	else
+		mb_max = mb_size;
 
 	if (overload_avail & 1) {
 		of1 = mb_max;
@@ -637,8 +641,8 @@ cons_options(struct packet *inpacket, struct dhcp_packet *outpacket,
 	/*
 	 * Preload the option priority list with protocol-mandatory options.
 	 * This effectively gives these options the highest priority.
- 	 * This provides the order for any available options, the option
- 	 * must be in the option cache in order to actually be included.
+	 * This provides the order for any available options, the option
+	 * must be in the option cache in order to actually be included.
 	 */
 	priority_len = 0;
 	priority_list[priority_len++] = DHO_DHCP_MESSAGE_TYPE;
@@ -679,7 +683,7 @@ cons_options(struct packet *inpacket, struct dhcp_packet *outpacket,
 		 * in the packet if there is space.  Note that the option
 		 * may only be included if the client supplied one.
 		 */
-		if ((priority_len < PRIORITY_COUNT) &&
+		if ((inpacket != NULL) && (priority_len < PRIORITY_COUNT) &&
 		    (lookup_option(&fqdn_universe, inpacket->options,
 				   FQDN_ENCODED) != NULL))
 			priority_list[priority_len++] = DHO_FQDN;
@@ -695,7 +699,7 @@ cons_options(struct packet *inpacket, struct dhcp_packet *outpacket,
 		 * DHCPINFORM or DHCPLEASEQUERY responses (if the client
 		 * didn't request it).
 		 */
-		if ((priority_len < PRIORITY_COUNT) &&
+		if ((inpacket != NULL) && (priority_len < PRIORITY_COUNT) &&
 		    ((inpacket->packet_type == DHCPDISCOVER) ||
 		     (inpacket->packet_type == DHCPREQUEST)))
 			priority_list[priority_len++] = DHO_SUBNET_MASK;
@@ -1166,7 +1170,7 @@ store_options(int *ocount,
 	/* Eliminate duplicate options from the parameter request list.
 	 * Enforce RFC-mandated ordering of options that are present.
 	 */
-	for (i = 0; i < priority_len - 1; i++) {
+	for (i = 0; i < priority_len; i++) {
 		/* Eliminate duplicates. */
 		tto = 0;
 		for (ix = i + 1; ix < priority_len + tto; ix++) {
@@ -1266,11 +1270,12 @@ store_options(int *ocount,
 						 cfg_options,
 						 vendor_cfg_option -> code);
 			    if (tmp)
-				evaluate_option_cache (&name, packet, lease,
-						       client_state,
-						       in_options,
-						       cfg_options,
-						       scope, tmp, MDL);
+				/* No need to check the return as we check name.len below */
+				(void) evaluate_option_cache (&name, packet, lease,
+							      client_state,
+							      in_options,
+							      cfg_options,
+							      scope, tmp, MDL);
 			} else if (vuname) {
 			    name.data = (unsigned char *)s;
 			    name.len = strlen (s);
@@ -1308,9 +1313,10 @@ store_options(int *ocount,
 	    /* Find the value of the option... */
 	    od.len = 0;
 	    if (oc) {
-		evaluate_option_cache (&od, packet,
-				       lease, client_state, in_options,
-				       cfg_options, scope, oc, MDL);
+		/* No need to check the return as we check od.len below */
+		(void) evaluate_option_cache (&od, packet,
+					      lease, client_state, in_options,
+					      cfg_options, scope, oc, MDL);
 
 		/* If we have encapsulation for this option, and an oc
 		 * lookup succeeded, but the evaluation failed, it is
@@ -1683,6 +1689,8 @@ const char *pretty_print_option (option, data, len, emit_commas, emit_quotes)
 	const unsigned char *dp = data;
 	char comma;
 	unsigned long tval;
+	isc_boolean_t a_array = ISC_FALSE;
+	int len_used;
 
 	if (emit_commas)
 		comma = ',';
@@ -1707,6 +1715,8 @@ const char *pretty_print_option (option, data, len, emit_commas, emit_quotes)
 		fmtbuf [l] = option -> format [i];
 		switch (option -> format [i]) {
 		      case 'a':
+			a_array = ISC_TRUE;
+			/* Fall through */
 		      case 'A':
 			--numelem;
 			fmtbuf [l] = 0;
@@ -1735,6 +1745,8 @@ const char *pretty_print_option (option, data, len, emit_commas, emit_quotes)
 				hunksize++;
 				comma = ':';
 				numhunk = 0;
+				a_array = ISC_TRUE;
+				hunkinc = 1;
 			}
 			fmtbuf [l + 1] = 0;
 			break;
@@ -1828,13 +1840,34 @@ const char *pretty_print_option (option, data, len, emit_commas, emit_quotes)
 		      len - hunksize);
 
 	/* If this is an array, compute its size. */
-	if (!numhunk)
-		numhunk = len / hunksize;
-	/* See if we got an exact number of hunks. */
-	if (numhunk > 0 && numhunk * hunksize < len)
-		log_error ("%s: %d extra bytes at end of array\n",
-		      option -> name,
-		      len - numhunk * hunksize);
+	if (numhunk == 0) {
+		if (a_array == ISC_TRUE) {
+			/*
+			 * It is an 'a' type array - we repeat the
+			 * last format type.  A binary string for 'X'
+			 * is also like this.  hunkinc is the size
+			 * of the last format type and we add 1 to
+			 * cover the entire first record.
+			 */
+			numhunk = ((len - hunksize) / hunkinc) + 1;
+			len_used = hunksize + ((numhunk - 1) * hunkinc);
+		} else {
+			/*
+			 * It is an 'A' type array - we repeat the
+			 * entire record
+			 */
+			numhunk = len / hunksize;
+			len_used = numhunk * hunksize;
+		}
+
+		/* See if we got an exact number of hunks. */
+		if (len_used < len) {
+			log_error ("%s: %d extra bytes at end of array\n",
+				   option -> name,
+				   len - len_used);
+		}
+	}
+
 
 	/* A one-hunk array prints the same as a single hunk. */
 	if (numhunk < 0)
@@ -1842,7 +1875,24 @@ const char *pretty_print_option (option, data, len, emit_commas, emit_quotes)
 
 	/* Cycle through the array (or hunk) printing the data. */
 	for (i = 0; i < numhunk; i++) {
-		for (j = 0; j < numelem; j++) {
+		if ((a_array == ISC_TRUE) && (i != 0) && (numelem > 0)) {
+			/*
+			 * For 'a' type of arrays we repeat
+			 * only the last format character
+			 * We should never hit the case of numelem == 0
+			 * but let's include the check to be safe.
+			 */
+			j = numelem - 1;
+		} else {
+			/*
+			 * for other types of arrays or the first
+			 * time through for 'a' types, we go through
+			 * the entire set of format characters.
+			 */
+			j = 0;
+		}
+
+		for (; j < numelem; j++) {
 			switch (fmtbuf [j]) {
 			      case 't':
 				/* endbuf-1 leaves room for NULL. */
@@ -2074,6 +2124,57 @@ int get_option (result, universe, packet, lease, client_state,
 				    file, line))
 		return 0;
 	return 1;
+}
+
+/*
+ * Look for the option and dig out the value assoicated with it.
+ * Currently this is used for 1 byte integers, it maybe expanded
+ * in the future to handle other integers at which point it will
+ * need a size argument.
+ */
+int get_option_int (result, universe, packet, lease, client_state,
+		    in_options, cfg_options, options, scope, code, file, line)
+	int *result;
+	struct universe *universe;
+	struct packet *packet;
+	struct lease *lease;
+	struct client_state *client_state;
+	struct option_state *in_options;
+	struct option_state *cfg_options;
+	struct option_state *options;
+	struct binding_scope **scope;
+	unsigned code;
+	const char *file;
+	int line;
+{
+	struct option_cache *oc;
+	struct data_string d1;
+	int rcode = 0;
+
+	/* basic sanity checks */
+	if ((options == NULL) || (universe->lookup_func == NULL))
+		return (0);
+
+	/* find the option cache */
+	oc = ((*universe->lookup_func)(universe, options, code));
+	if (!oc)
+		return (0);
+
+	/* if there is a value get it into the string */
+	memset(&d1, 0, sizeof(d1));	
+	if (!evaluate_option_cache(&d1, packet, lease, client_state,
+				   in_options, cfg_options, scope, oc,
+				   file, line))
+		return (0);
+
+	/* If the length matches extract the value for the return */
+	if (d1.len == 1) {
+		*result = d1.data[0];
+		rcode = 1;
+	}
+	data_string_forget(&d1, MDL);
+
+	return (rcode);
 }
 
 void set_option (universe, options, option, op)
@@ -2359,9 +2460,11 @@ prepare_option_buffer(struct universe *universe, struct buffer *bp,
 
 	/* And let go of our references. */
       cleanup:
+	if (lbp != NULL)
+		buffer_dereference(&lbp, MDL);
 	option_dereference(&option, MDL);
 
-	return 1;
+	return status;
 }
 
 static void
@@ -3097,9 +3200,11 @@ int fqdn_option_space_encapsulate (result, packet, lease, client_state,
 		struct option_cache *oc = (struct option_cache *)(ocp -> car);
 		if (oc -> option -> code > FQDN_SUBOPTION_COUNT)
 			continue;
-		evaluate_option_cache (&results [oc -> option -> code],
-				       packet, lease, client_state, in_options,
-				       cfg_options, scope,  oc, MDL);
+		/* No need to check the return code, we check the length later */
+		(void) evaluate_option_cache (&results[oc->option->code],
+					      packet, lease, client_state,
+					      in_options, cfg_options, scope,
+					      oc, MDL);
 	}
 	/* We add a byte for the flags field.
 	 * We add two bytes for the two RCODE fields.
@@ -3264,10 +3369,10 @@ fqdn6_option_space_encapsulate(struct data_string *result,
 		oc = (struct option_cache *)(ocp->car);
 		if (oc->option->code > FQDN_SUBOPTION_COUNT)
 			log_fatal("Impossible condition at %s:%d.", MDL);
-
-		evaluate_option_cache(&results[oc->option->code], packet,
-				      lease, client_state, in_options,
-				      cfg_options, scope, oc, MDL);
+		/* No need to check the return code, we check the length later */
+		(void) evaluate_option_cache(&results[oc->option->code], packet,
+					     lease, client_state, in_options,
+					     cfg_options, scope, oc, MDL);
 	}
 
 	/* We add a byte for the flags field at the start of the option.
@@ -3703,77 +3808,73 @@ void do_packet (interface, packet, len, from_port, from, hfrom)
 #endif
 
 #if defined (TRACING)
-	trace_inpacket_stash (interface, packet, len, from_port, from, hfrom);
+	trace_inpacket_stash(interface, packet, len, from_port, from, hfrom);
 #endif
 
-	decoded_packet = (struct packet *)0;
-	if (!packet_allocate (&decoded_packet, MDL)) {
-		log_error ("do_packet: no memory for incoming packet!");
+	decoded_packet = NULL;
+	if (!packet_allocate(&decoded_packet, MDL)) {
+		log_error("do_packet: no memory for incoming packet!");
 		return;
 	}
-	decoded_packet -> raw = packet;
-	decoded_packet -> packet_length = len;
-	decoded_packet -> client_port = from_port;
-	decoded_packet -> client_addr = from;
-	interface_reference (&decoded_packet -> interface, interface, MDL);
-	decoded_packet -> haddr = hfrom;
+	decoded_packet->raw = packet;
+	decoded_packet->packet_length = len;
+	decoded_packet->client_port = from_port;
+	decoded_packet->client_addr = from;
+	interface_reference(&decoded_packet->interface, interface, MDL);
+	decoded_packet->haddr = hfrom;
 
-	if (packet -> hlen > sizeof packet -> chaddr) {
-		packet_dereference (&decoded_packet, MDL);
-		log_info ("Discarding packet with bogus hlen.");
+	if (packet->hlen > sizeof packet->chaddr) {
+		packet_dereference(&decoded_packet, MDL);
+		log_info("Discarding packet with bogus hlen.");
 		return;
 	}
 
 	/* If there's an option buffer, try to parse it. */
-	if (decoded_packet -> packet_length >= DHCP_FIXED_NON_UDP + 4) {
-		if (!parse_options (decoded_packet)) {
-			if (decoded_packet -> options)
+	if (decoded_packet->packet_length >= DHCP_FIXED_NON_UDP + 4) {
+		if (!parse_options(decoded_packet)) {
+			if (decoded_packet->options)
 				option_state_dereference
-					(&decoded_packet -> options, MDL);
+					(&decoded_packet->options, MDL);
 			packet_dereference (&decoded_packet, MDL);
 			return;
 		}
 
-		if (decoded_packet -> options_valid &&
-		    (op = lookup_option (&dhcp_universe,
-					 decoded_packet -> options, 
-					 DHO_DHCP_MESSAGE_TYPE))) {
+		if (decoded_packet->options_valid &&
+		    (op = lookup_option(&dhcp_universe,
+					decoded_packet->options, 
+					DHO_DHCP_MESSAGE_TYPE))) {
 			struct data_string dp;
-			memset (&dp, 0, sizeof dp);
-			evaluate_option_cache (&dp, decoded_packet,
-					       (struct lease *)0,
-					       (struct client_state *)0,
-					       decoded_packet -> options,
-					       (struct option_state *)0,
-					       (struct binding_scope **)0,
-					       op, MDL);
+			memset(&dp, 0, sizeof dp);
+			evaluate_option_cache(&dp, decoded_packet, NULL, NULL,
+					      decoded_packet->options, NULL,
+					      NULL, op, MDL);
 			if (dp.len > 0)
-				decoded_packet -> packet_type = dp.data [0];
+				decoded_packet->packet_type = dp.data[0];
 			else
-				decoded_packet -> packet_type = 0;
-			data_string_forget (&dp, MDL);
+				decoded_packet->packet_type = 0;
+			data_string_forget(&dp, MDL);
 		}
 	}
-		
-	if (decoded_packet -> packet_type)
-		dhcp (decoded_packet);
-	else
-		bootp (decoded_packet);
+
+	if (validate_packet(decoded_packet) != 0) {
+		if (decoded_packet->packet_type)
+			dhcp(decoded_packet);
+		else
+			bootp(decoded_packet);
+	}
 
 	/* If the caller kept the packet, they'll have upped the refcnt. */
-	packet_dereference (&decoded_packet, MDL);
+	packet_dereference(&decoded_packet, MDL);
 
 #if defined (DEBUG_MEMORY_LEAKAGE)
-	log_info ("generation %ld: %ld new, %ld outstanding, %ld long-term",
-		  dmalloc_generation,
-		  dmalloc_outstanding - previous_outstanding,
-		  dmalloc_outstanding, dmalloc_longterm);
-#endif
-#if defined (DEBUG_MEMORY_LEAKAGE)
-	dmalloc_dump_outstanding ();
+	log_info("generation %ld: %ld new, %ld outstanding, %ld long-term",
+		 dmalloc_generation,
+		 dmalloc_outstanding - previous_outstanding,
+		 dmalloc_outstanding, dmalloc_longterm);
+	dmalloc_dump_outstanding();
 #endif
 #if defined (DEBUG_RC_HISTORY_EXHAUSTIVELY)
-	dump_rc_history (0);
+	dump_rc_history(0);
 #endif
 }
 
@@ -3807,6 +3908,9 @@ do_packet6(struct interface_info *interface, const char *packet,
 	const struct dhcpv6_packet *msg;
 	const struct dhcpv6_relay_packet *relay; 
 	struct packet *decoded_packet;
+#if defined (DEBUG_MEMORY_LEAKAGE)
+	unsigned long previous_outstanding = dmalloc_outstanding;
+#endif
 
 	if (!packet6_len_okay(packet, len)) {
 		log_info("do_packet6: "
@@ -3834,8 +3938,8 @@ do_packet6(struct interface_info *interface, const char *packet,
 	/* decoded_packet->circuit_id_len = 0; */
 	/* decoded_packet->remote_id = NULL; */
 	/* decoded_packet->remote_id_len = 0; */
-	decoded_packet->raw = (struct dhcp_packet *) packet;
-	decoded_packet->packet_length = (unsigned) len;
+	decoded_packet->raw = (struct dhcp_packet *)packet;
+	decoded_packet->packet_length = (unsigned)len;
 	decoded_packet->client_port = from_port;
 	decoded_packet->client_addr = *from;
 	interface_reference(&decoded_packet->interface, interface, MDL);
@@ -3845,6 +3949,7 @@ do_packet6(struct interface_info *interface, const char *packet,
 	msg_type = packet[0];
 	if ((msg_type == DHCPV6_RELAY_FORW) || 
 	    (msg_type == DHCPV6_RELAY_REPL)) {
+		int relaylen = (int)(offsetof(struct dhcpv6_relay_packet, options));
 		relay = (const struct dhcpv6_relay_packet *)packet;
 		decoded_packet->dhcpv6_msg_type = relay->msg_type;
 
@@ -3856,7 +3961,7 @@ do_packet6(struct interface_info *interface, const char *packet,
 		       relay->peer_address, sizeof(relay->peer_address));
 
 		if (!parse_option_buffer(decoded_packet->options, 
-					 relay->options, len-sizeof(*relay), 
+					 relay->options, len - relaylen, 
 					 &dhcpv6_universe)) {
 			/* no logging here, as parse_option_buffer() logs all
 			   cases where it fails */
@@ -3864,6 +3969,7 @@ do_packet6(struct interface_info *interface, const char *packet,
 			return;
 		}
 	} else {
+		int msglen = (int)(offsetof(struct dhcpv6_packet, options));
 		msg = (const struct dhcpv6_packet *)packet;
 		decoded_packet->dhcpv6_msg_type = msg->msg_type;
 
@@ -3873,7 +3979,7 @@ do_packet6(struct interface_info *interface, const char *packet,
 		       sizeof(decoded_packet->dhcpv6_transaction_id));
 
 		if (!parse_option_buffer(decoded_packet->options, 
-					 msg->options, len-sizeof(*msg), 
+					 msg->options, len - msglen, 
 					 &dhcpv6_universe)) {
 			/* no logging here, as parse_option_buffer() logs all
 			   cases where it fails */
@@ -3885,6 +3991,17 @@ do_packet6(struct interface_info *interface, const char *packet,
 	dhcpv6(decoded_packet);
 
 	packet_dereference(&decoded_packet, MDL);
+
+#if defined (DEBUG_MEMORY_LEAKAGE)
+	log_info("generation %ld: %ld new, %ld outstanding, %ld long-term",
+		 dmalloc_generation,
+		 dmalloc_outstanding - previous_outstanding,
+		 dmalloc_outstanding, dmalloc_longterm);
+	dmalloc_dump_outstanding();
+#endif
+#if defined (DEBUG_RC_HISTORY_EXHAUSTIVELY)
+	dump_rc_history(0);
+#endif
 }
 #endif /* DHCPv6 */
 
@@ -4076,4 +4193,47 @@ add_option(struct option_state *options,
 	return 1;
 }
 
+/**
+ *  Checks if received BOOTP/DHCPv4 packet is sane
+ *
+ * @param packet received, decoded packet
+ *
+ * @return 1 if packet is sane, 0 if it is not
+ */
+int validate_packet(struct packet *packet)
+{
+	struct option_cache *oc = NULL;
 
+	oc = lookup_option (&dhcp_universe, packet->options,
+			    DHO_DHCP_CLIENT_IDENTIFIER);
+	if (oc) {
+		/* Let's check if client-identifier is sane */
+		if (oc->data.len == 0) {
+			log_debug("Dropped DHCPv4 packet with zero-length client-id");
+			return (0);
+
+		} else if (oc->data.len == 1) {
+			/*
+			 * RFC2132, section 9.14 states that minimum length of client-id
+			 * is 2.  We will allow single-character client-ids for now (for
+			 * backwards compatibility), but warn the user that support for
+			 * this is against the standard.
+			 */
+			log_debug("Accepted DHCPv4 packet with one-character client-id - "
+				"a future version of ISC DHCP will reject this");
+		}
+	} else {
+		/* 
+		 * If hlen is 0 we don't have any identifier, we warn the user
+		 * but continue processing the packet as we can.
+		 */
+		if (packet->raw->hlen == 0) {
+			log_debug("Received DHCPv4 packet without client-id"
+				  " option and empty hlen field.");
+		}
+	}
+
+	/* @todo: Add checks for other received options */
+
+	return (1);
+}

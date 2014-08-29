@@ -3,8 +3,8 @@
    Operating system dependencies... */
 
 /*
- * Copyright (c) 2004-2005,2007-2010 by Internet Systems Consortium,
- *                                      Inc. ("ISC")
+ * Copyright (c) 2004-2005,2007-2010,2014 by Internet Systems Consortium,
+ *                                        Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -25,12 +25,6 @@
  *   <info@isc.org>
  *   https://www.isc.org/
  *
- * This software has been written for Internet Systems Consortium
- * by Ted Lemon in cooperation with Vixie Enterprises and Nominum, Inc.
- * To learn more about Internet Systems Consortium, see
- * ``https://www.isc.org/''.  To learn more about Vixie Enterprises,
- * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
- * ``http://www.nominum.com''.
  */
 
 #if !defined (__ISC_DHCP_OSDEP_H__)
@@ -108,6 +102,10 @@
 #  define USE_SOCKET_RECEIVE
 #  if defined(HAVE_DLPI)
 #    define USE_DLPI_HWADDR
+#  elif defined(HAVE_LPF)
+#    define USE_LPF_HWADDR
+#  elif defined(HAVE_BPF)
+#    define USE_BPF_HWADDR
 #  endif
 #endif
 

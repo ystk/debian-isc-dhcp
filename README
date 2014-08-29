@@ -1,6 +1,6 @@
 	      Internet Systems Consortium DHCP Distribution
-			     Version 4.2.2
-			      27 July 2011
+			      Version 4.3.1
+			      11 August 2014
 
 			      README FILE
 
@@ -34,11 +34,13 @@ the ISC DHCP Distribution.
 	 5.7	 NeXTSTEP
 	 5.8	 SOLARIS
 	  5.8.1 Solaris 11
-	  5.8.2 Other Solaris Items
+	  5.8.2 Solaris 11 and ATF
+	  5.8.3 Other Solaris Items
 	 5.9	 AIX
 	 5.10	 MacOS X
 	6	SUPPORT
 	 6.1	 HOW TO REPORT BUGS
+	7	HISTORY
 
 		      WHERE TO FIND DOCUMENTATION
 
@@ -58,8 +60,8 @@ DHCP server documentation is in the dhcpd man page.  Information about
 the DHCP server lease database is in the dhcpd.leases man page.
 Server configuration documentation is in the dhcpd.conf man page as
 well as the dhcp-options man page.   A sample DHCP server
-configuration is in the file server/dhcpd.conf.   The source for the
-dhcpd, dhcpd.leases and dhcpd.conf man pages is in the server/ sub-
+configuration is in the file server/dhcpd.conf.example.   The source for
+the dhcpd, dhcpd.leases and dhcpd.conf man pages is in the server/ sub-
 directory in the distribution.   The source for the dhcp-options.5
 man page is in the common/ subdirectory.
 
@@ -97,7 +99,14 @@ directory, it may not have up-to-date information).
 
 			    RELEASE STATUS
 
-This is ISC DHCP 4.2.2, a maintenance release containing patches.
+This is ISC DHCP 4.3.x  The major theme for this release is "ipv6 uplift",
+in which we enhance the v6 code to support many of the features found
+in the v4 code.  These include: support for v6, support for on_commit,
+on_expiry and on_release in v6, support for accessing v6 relay options
+and better log messages for v6 addresses.  Non v6 features include:
+support for the standard DDNS, better OMAPI class and sub-class support
+allowing for dynamic addition and removal of sub-classes, and support for
+DDNS without zone statements.
 
 In this release, the DHCPv6 server should be fully functional on Linux,
 Solaris, or any BSD.  The DHCPv6 client should be similarly functional
@@ -132,12 +141,12 @@ information.   On Digital Unix, type ``man pfilt''.
 To build the DHCP Distribution, unpack the compressed tar file using
 the tar utility and the gzip command - type something like:
 
-	gunzip dhcp-4.2.2.tar.gz
-	tar xvf dhcp-4.2.2.tar
+	gunzip dhcp-4.3.1.tar.gz
+	tar xvf dhcp-4.3.1.tar
 
 			    CONFIGURING IT
 
-Now, cd to the dhcp-4.2.2 subdirectory that you've just created and
+Now, cd to the dhcp-4.3.1 subdirectory that you've just created and
 configure the source tree by typing:
 
 	./configure
@@ -147,6 +156,11 @@ running on, it will create a custom Makefile for you for that
 system; otherwise, it will complain.  If it can't figure out what
 system you are using, that system is not supported - you are on
 your own.
+
+Several options may be enabled or disabled via the configure command.
+You can get a list of these by typing:
+
+	./configure --help
 
 			 DYNAMIC DNS UPDATES
 
@@ -267,7 +281,7 @@ we completely bypass the Linux IP stack, but on old versions of Linux
 DHCP clients connected to the same network as the ISC DHCP server or
 ISC relay agent will not see messages from the DHCP server.   It *is*
 possible to run into trouble with this on Linux 2.2 and later if you
-are running a verson of the DHCP server that was compiled on a Linux
+are running a version of the DHCP server that was compiled on a Linux
 2.0 system, though.
 
 It is possible to work around this problem on some versions of Linux
@@ -450,6 +464,36 @@ configuration step.  The command line would be something like:
 
 	  ./configure --enable-use-sockets --enable-ipv4-pktinfo
 
+				Solaris 11 and ATF
+
+We have reports that ATF 0.15 and 0.16 do not build on Solaris 11.  The
+following changes to the ATF source code appear to fix this issue:
+
+diff -ru atf-0.15/atf-c/tp_test.c atf-0.15-patched/atf-c/tp_test.c
+--- atf-0.15/atf-c/tp_test.c 2011-12-06 06:31:11.000000000 +0100
++++ atf-0.15-patched/atf-c/tp_test.c 2012-06-19 15:54:57.000000000 +0200
+@@ -28,6 +28,7 @@
+*/
+
+#include <string.h>
++#include <stdio.h>
+#include <unistd.h>
+
+#include <atf-c.h>
+
+diff -ru atf-0.15/atf-run/requirements.cpp atf-0.15-patched/atf-run/requirements.cpp
+--- atf-0.15/atf-run/requirements.cpp 2012-01-13 20:44:25.000000000 +0100
++++ atf-0.15-patched/atf-run/requirements.cpp 2012-06-19 15:41:51.000000000 +0200
+@@ -29,7 +29,7 @@
+
+extern "C" {
+#include <sys/param.h>
+-#include <sys/sysctl.h>
++//#include <sys/sysctl.h>
+}
+
+#include <cerrno>
+
 				Other Solaris Items
 
 One problem which has been observed and is not fixed in this
@@ -494,7 +538,7 @@ server and relay will work only on a single interface.  (They do work
 on multi-interface machines if configured to listen on only one of the
 interfaces.)
 
-We have reports of Windows XP clients having difficutly retrieving
+We have reports of Windows XP clients having difficulty retrieving
 addresses from a server running on an AIX machine.  This issue
 was traced to the client requiring messages be sent to the all ones
 broadcast address (255.255.255.255) while the AIX server was sending 
@@ -523,20 +567,23 @@ this text is only about the DHCPv6 client (``dhclient -6 ...'').  The DNS
 configuration (domain search list and name servers' addresses) is managed
 by a System Configuration agent, not by /etc/resolv.conf (which is a link
 to /var/run/resolv.conf, which itself only reflects the internal state;
-the System Configuration agent's Dynamic Store).
+the System Configuration framework's Dynamic Store).
 
-This means that modifying resolv.conf directly doesn't have the intended
-effect, so the macos script sample uses its own resolv.conf.dhclient6 in
-/var/run, and inserts the contents of this file into the System
-Configuration agent.  Because the System Configuration agent expects the
-prefix along with the configured address, and a default router, this is
-not usable (the DHCPv6 protocol does not today deliver this information).
-Instead, ifconfig is directly used for address configuration.
+This means that modifying resolv.conf directly doesn't have the
+intended effect, instead the macos script sample creates its own
+resolv.conf.dhclient6 in /var/run, and inserts the contents of this
+file into the Dynamic Store.
+
+When updating the address configuration the System Configuration
+framework expects the prefix and a default router along with the
+configured address. As this extra information is not available via
+the DHCPv6 protocol the System Configuration framework isn't usable
+for address configuration, instead ifconfig is used directly.
 
 Note the Dynamic Store (from which /var/run/resolv.conf is built) is
-recomputed from scratch when the current location/set is changed, for
-instance when a laptop is resumed from sleep. In this case running the
-dhclient-script could reinstall the resolv.conf.dhclient6 configuration.
+recomputed from scratch when the current location/set is changed.
+Running the dhclient-script reinstalls the resolv.conf.dhclient6
+configuration.
 
 			       SUPPORT
 
@@ -653,3 +700,19 @@ bug reports are more likely to get handled more quickly overall.
 Please see https://www.isc.org/software/dhcp/ for details on how to subscribe
 to the ISC DHCP mailing lists.
 
+			       HISTORY
+
+ISC DHCP was originally written by Ted Lemon under a contract with
+Vixie Labs with the goal of being a complete reference implementation
+of the DHCP protocol.  Funding for this project was provided by
+Internet Systems Consortium. The first release of the ISC DHCP
+distribution in December 1997 included just the DHCP server.
+Release 2 in June 1999 added a DHCP client and a BOOTP/DHCP relay
+agent. DHCP 3 was released in October 2001 and included DHCP failover
+support, OMAPI, Dynamic DNS, conditional behaviour, client classing,
+and more. Version 3 of the DHCP server was funded by Nominum, Inc.
+The 4.0 release in December 2007 introduced DHCPv6 protocol support
+for the server and client.
+
+This product includes cryptographic software written
+by Eric Young (eay@cryptsoft.com).

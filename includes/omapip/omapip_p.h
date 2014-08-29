@@ -3,7 +3,7 @@
    Private master include file for the OMAPI library. */
 
 /*
- * Copyright (c) 2009-2010 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2009-2010,2014 by Internet Systems Consortium, Inc. ("ISC") 
  * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
@@ -25,12 +25,6 @@
  *   <info@isc.org>
  *   https://www.isc.org/
  *
- * This software has been written for Internet Systems Consortium
- * by Ted Lemon in cooperation with Vixie Enterprises and Nominum, Inc.
- * To learn more about Internet Systems Consortium, see
- * ``https://www.isc.org/''.  To learn more about Vixie Enterprises,
- * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
- * ``http://www.nominum.com''.
  */
 
 #ifndef __OMAPIP_OMAPIP_P_H__
@@ -284,12 +278,11 @@ OMAPI_ARRAY_TYPE_DECL(omapi_connection, omapi_connection_object_t);
 
 isc_result_t omapi_handle_clear(omapi_handle_t);
 
-extern int log_priority;
 extern int log_perror;
 extern void (*log_cleanup) (void);
 
 void log_fatal (const char *, ...)
-	__attribute__((__format__(__printf__,1,2)));
+	__attribute__((__format__(__printf__,1,2))) ISC_DHCP_NORETURN;
 int log_error (const char *, ...)
 	__attribute__((__format__(__printf__,1,2)));
 int log_info (const char *, ...)

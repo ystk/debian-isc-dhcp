@@ -3,7 +3,7 @@
    DHCP Client. */
 
 /*
- * Copyright (c) 2004-2011 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2014 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -47,6 +47,7 @@ const char *path_dhclient_db = NULL;
 const char *path_dhclient_pid = NULL;
 static char path_dhclient_script_array[] = _PATH_DHCLIENT_SCRIPT;
 char *path_dhclient_script = path_dhclient_script_array;
+const char *path_dhclient_duid = NULL;
 
 /* False (default) => we write and use a pid file */
 isc_boolean_t no_pid_file = ISC_FALSE;
@@ -62,17 +63,17 @@ struct sockaddr_in sockaddr_broadcast;
 struct in_addr giaddr;
 struct data_string default_duid;
 int duid_type = 0;
+int duid_v4 = 0;
+int std_dhcid = 0;
 
 /* ASSERT_STATE() does nothing now; it used to be
    assert (state_is == state_shouldbe). */
 #define ASSERT_STATE(state_is, state_shouldbe) {}
 
-static const char copyright[] =
-"Copyright 2004-2011 Internet Systems Consortium.";
+static const char copyright[] = "Copyright 2004-2014 Internet Systems Consortium.";
 static const char arr [] = "All rights reserved.";
 static const char message [] = "Internet Systems Consortium DHCP Client";
-static const char url [] = 
-"For info, please visit https://www.isc.org/software/dhcp/";
+static const char url [] = "For info, please visit https://www.isc.org/software/dhcp/";
 
 u_int16_t local_port = 0;
 u_int16_t remote_port = 0;
@@ -100,6 +101,7 @@ static int check_domain_name_list(const char *ptr, size_t len, int dots);
 static int check_option_values(struct universe *universe, unsigned int opt,
 			       const char *ptr, size_t len);
 
+#ifndef UNIT_TEST
 int
 main(int argc, char **argv) {
 	int fd;
@@ -140,14 +142,15 @@ main(int argc, char **argv) {
 	else if (fd != -1)
 		close(fd);
 
-	openlog("dhclient", LOG_NDELAY, LOG_DAEMON);
+	openlog("dhclient", DHCP_LOG_OPTIONS, LOG_DAEMON);
 
 #if !(defined(DEBUG) || defined(__CYGWIN32__))
 	setlogmask(LOG_UPTO(LOG_INFO));
 #endif
 
 	/* Set up the isc and dns library managers */
-	status = dhcp_context_create();
+	status = dhcp_context_create(DHCP_CONTEXT_PRE_DB | DHCP_CONTEXT_POST_DB,
+				     NULL, NULL);
 	if (status != ISC_R_SUCCESS)
 		log_fatal("Can't initialize context: %s",
 			  isc_result_totext(status));
@@ -209,6 +212,10 @@ main(int argc, char **argv) {
 				usage();
 			path_dhclient_conf = argv[i];
 			no_dhclient_conf = 1;
+		} else if (!strcmp(argv[i], "-df")) {
+			if (++i == argc)
+				usage();
+			path_dhclient_duid = argv[i];
 		} else if (!strcmp(argv[i], "-lf")) {
 			if (++i == argc)
 				usage();
@@ -289,12 +296,9 @@ main(int argc, char **argv) {
 				wanted_ia_na = 0;
 			}
 			wanted_ia_pd++;
+#endif /* DHCPv6 */
 		} else if (!strcmp(argv[i], "-D")) {
-			if (local_family_set && (local_family == AF_INET)) {
-				usage();
-			}
-			local_family_set = 1;
-			local_family = AF_INET6;
+			duid_v4 = 1;
 			if (++i == argc)
 				usage();
 			if (!strcasecmp(argv[i], "LL")) {
@@ -304,11 +308,22 @@ main(int argc, char **argv) {
 			} else {
 				usage();
 			}
-#endif /* DHCPv6 */
+		} else if (!strcmp(argv[i], "-i")) {
+			/* enable DUID support for DHCPv4 clients */
+			duid_v4 = 1;
+		} else if (!strcmp(argv[i], "-I")) {
+			/* enable standard DHCID support for DDNS updates */
+			std_dhcid = 1;
 		} else if (!strcmp(argv[i], "-v")) {
 			quiet = 0;
 		} else if (!strcmp(argv[i], "--version")) {
-			log_info("isc-dhclient-%s", PACKAGE_VERSION);
+			const char vstring[] = "isc-dhclient-";
+			IGNORE_RET(write(STDERR_FILENO, vstring,
+					 strlen(vstring)));
+			IGNORE_RET(write(STDERR_FILENO,
+					 PACKAGE_VERSION,
+					 strlen(PACKAGE_VERSION)));
+			IGNORE_RET(write(STDERR_FILENO, "\n", 1));
 			exit(0);
 		} else if (argv[i][0] == '-') {
 		    usage();
@@ -376,21 +391,17 @@ main(int argc, char **argv) {
 	 * to be reopened after chdir() has been called
 	 */
 	if (path_dhclient_db[0] != '/') {
-		char *path = dmalloc(PATH_MAX, MDL);
-		if (path == NULL)
-			log_fatal("No memory for filename\n");
-		path_dhclient_db = realpath(path_dhclient_db, path);
+		const char *old_path = path_dhclient_db;
+		path_dhclient_db = realpath(path_dhclient_db, NULL);
 		if (path_dhclient_db == NULL)
-			log_fatal("%s: %s", path, strerror(errno));
+			log_fatal("Failed to get realpath for %s: %s", old_path, strerror(errno));
 	}
 
 	if (path_dhclient_script[0] != '/') {
-		char *path = dmalloc(PATH_MAX, MDL);
-		if (path == NULL)
-			log_fatal("No memory for filename\n");
-		path_dhclient_script = realpath(path_dhclient_script, path);
+		const char *old_path = path_dhclient_script;
+		path_dhclient_script = realpath(path_dhclient_script, NULL);
 		if (path_dhclient_script == NULL)
-			log_fatal("%s: %s", path, strerror(errno));
+			log_fatal("Failed to get realpath for %s: %s", old_path, strerror(errno));
 	}
 
 	/*
@@ -405,14 +416,26 @@ main(int argc, char **argv) {
 		long temp;
 		int e;
 
-		oldpid = 0;
 		if ((pidfd = fopen(path_dhclient_pid, "r")) != NULL) {
 			e = fscanf(pidfd, "%ld\n", &temp);
 			oldpid = (pid_t)temp;
 
-			if (e != 0 && e != EOF) {
-				if (oldpid)
-					kill(oldpid, SIGTERM);
+			if (e != 0 && e != EOF && oldpid) {
+				if (kill(oldpid, SIGTERM) == 0) {
+					log_info("Killed old client process");
+					(void) unlink(path_dhclient_pid);
+					/*
+					 * wait for the old process to
+					 * cleanly terminate.
+					 * Note kill() with sig=0 could
+					 * detect termination but only
+					 * the parent can be signaled...
+					 */
+					sleep(1);
+				} else if (errno == ESRCH) {
+					log_info("Removed stale PID file");
+					(void) unlink(path_dhclient_pid);
+				}
 			}
 			fclose(pidfd);
 		}
@@ -486,6 +509,11 @@ main(int argc, char **argv) {
 
 	/* Parse the lease database. */
 	read_client_leases();
+
+	/* If desired parse the secondary lease database for a DUID */
+	if ((default_duid.len == 0) && (path_dhclient_duid != NULL)) {
+		read_client_duid();
+	}
 
 	/* Rewrite the lease database... */
 	rewrite_client_leases();
@@ -563,12 +591,13 @@ main(int argc, char **argv) {
 	}
 	srandom(seed + cur_time + (unsigned)getpid());
 
-	/* Start a configuration state machine for each interface. */
-#ifdef DHCPv6
-	if (local_family == AF_INET6) {
-		/* Establish a default DUID.  This may be moved to the
-		 * DHCPv4 area later.
-		 */
+
+	/*
+	 * Establish a default DUID.  We always do so for v6 and
+	 * do so if desired for v4 via the -D or -i options
+	 */
+	if ((local_family == AF_INET6) ||
+	    ((local_family == AF_INET) && (duid_v4 == 1))) {
 		if (default_duid.len == 0) {
 			if (default_duid.buffer != NULL)
 				data_string_forget(&default_duid, MDL);
@@ -576,7 +605,11 @@ main(int argc, char **argv) {
 			form_duid(&default_duid, MDL);
 			write_duid(&default_duid);
 		}
+	}
 
+	/* Start a configuration state machine for each interface. */
+#ifdef DHCPv6
+	if (local_family == AF_INET6) {
 		for (ip = interfaces ; ip != NULL ; ip = ip->next) {
 			for (client = ip->client ; client != NULL ;
 			     client = client->next) {
@@ -681,6 +714,13 @@ main(int argc, char **argv) {
 	dmalloc_outstanding = 0;
 #endif
 
+#if defined(ENABLE_GENTLE_SHUTDOWN)
+	/* no signal handlers until we deal with the side effects */
+        /* install signal handlers */
+	signal(SIGINT, dhcp_signal_handler);   /* control-c */
+	signal(SIGTERM, dhcp_signal_handler);  /* kill */
+#endif
+
 	/* If we're not supposed to wait before getting the address,
 	   don't. */
 	if (nowait)
@@ -694,9 +734,10 @@ main(int argc, char **argv) {
 	/* Start dispatching packets and timeouts... */
 	dispatch();
 
-	/*NOTREACHED*/
+	/* In fact dispatch() never returns. */
 	return 0;
 }
+#endif /* !UNIT_TEST */
 
 static void usage()
 {
@@ -708,12 +749,12 @@ static void usage()
 
 	log_fatal("Usage: dhclient "
 #ifdef DHCPv6
-		  "[-4|-6] [-SNTP1dvrx] [-nw] [-p <port>] [-D LL|LLT]\n"
+		  "[-4|-6] [-SNTPI1dvrxi] [-nw] [-p <port>] [-D LL|LLT] \n"
 #else /* DHCPv6 */
-		  "[-1dvrx] [-nw] [-p <port>]\n"
+		  "[-I1dvrxi] [-nw] [-p <port>] [-D LL|LLT] \n"
 #endif /* DHCPv6 */
-		  "                [-s server-addr] [-cf config-file] "
-		  "[-lf lease-file]\n"
+		  "                [-s server-addr] [-cf config-file]\n"
+		  "                [-df duid-file] [-lf lease-file]\n"
 		  "                [-pf pid-file] [--no-pid] [-e VAR=val]\n"
 		  "                [-sf script-file] [interface]");
 }
@@ -736,6 +777,11 @@ void run_stateless(int exit_mode)
 
 	/* Parse the lease database. */
 	read_client_leases();
+
+	/* If desired parse the secondary lease database for a DUID */
+	if ((default_duid.len == 0) && (path_dhclient_duid != NULL)) {
+		read_client_duid();
+	}
 
 	/* Establish a default DUID. */
 	if (default_duid.len == 0) {
@@ -797,7 +843,6 @@ void run_stateless(int exit_mode)
 	/* Start dispatching packets and timeouts... */
 	dispatch();
 
-	/*NOTREACHED*/
 #endif /* DHCPv6 */
 	return;
 }
@@ -1192,44 +1237,50 @@ void bind_lease (client)
 	struct timeval tv;
 
 	/* Remember the medium. */
-	client -> new -> medium = client -> medium;
+	client->new->medium = client->medium;
 
 	/* Run the client script with the new parameters. */
-	script_init (client, (client -> state == S_REQUESTING
-			  ? "BOUND"
-			  : (client -> state == S_RENEWING
-			     ? "RENEW"
-			     : (client -> state == S_REBOOTING
-				? "REBOOT" : "REBIND"))),
-		     client -> new -> medium);
-	if (client -> active && client -> state != S_REBOOTING)
-		script_write_params (client, "old_", client -> active);
-	script_write_params (client, "new_", client -> new);
-	if (client -> alias)
-		script_write_params (client, "alias_", client -> alias);
+	script_init(client, (client->state == S_REQUESTING ? "BOUND" :
+			     (client->state == S_RENEWING ? "RENEW" : 
+			      (client->state == S_REBOOTING ? "REBOOT" :
+			       "REBIND"))),
+		    client->new->medium);
+	if (client->active && client->state != S_REBOOTING)
+		script_write_params(client, "old_", client->active);
+	script_write_params (client, "new_", client->new);
+	script_write_requested(client);
+	if (client->alias)
+		script_write_params(client, "alias_", client->alias);
 
 	/* If the BOUND/RENEW code detects another machine using the
 	   offered address, it exits nonzero.  We need to send a
 	   DHCPDECLINE and toss the lease. */
-	if (script_go (client)) {
-		make_decline (client, client -> new);
-		send_decline (client);
-		destroy_client_lease (client -> new);
-		client -> new = (struct client_lease *)0;
-		state_init (client);
-		return;
+	if (script_go(client)) {
+		make_decline(client, client->new);
+		send_decline(client);
+		destroy_client_lease(client->new);
+		client->new = NULL;
+		if (onetry) {
+			if (!quiet)
+				log_info("Unable to obtain a lease on first "
+					 "try (declined).  Exiting.");
+			exit(2);
+		} else {
+			state_init(client);
+			return;
+		}
 	}
 
 	/* Write out the new lease if it has been long enough. */
 	if (!client->last_write ||
 	    (cur_time - client->last_write) >= MIN_LEASE_WRITE)
-		write_client_lease(client, client->new, 0, 0);
+		write_client_lease(client, client->new, 0, 1);
 
 	/* Replace the old active lease with the new one. */
-	if (client -> active)
-		destroy_client_lease (client -> active);
-	client -> active = client -> new;
-	client -> new = (struct client_lease *)0;
+	if (client->active)
+		destroy_client_lease(client->active);
+	client->active = client->new;
+	client->new = NULL;
 
 	/* Set up a timeout to start the renewal process. */
 	tv.tv_sec = client->active->renewal;
@@ -1237,12 +1288,12 @@ void bind_lease (client)
 			random() % 1000000 : cur_tv.tv_usec;
 	add_timeout(&tv, state_bound, client, 0, 0);
 
-	log_info ("bound to %s -- renewal in %ld seconds.",
-	      piaddr (client -> active -> address),
-	      (long)(client -> active -> renewal - cur_time));
-	client -> state = S_BOUND;
-	reinitialize_interfaces ();
-	go_daemon ();
+	log_info("bound to %s -- renewal in %ld seconds.",
+	      piaddr(client->active->address),
+	      (long)(client->active->renewal - cur_time));
+	client->state = S_BOUND;
+	reinitialize_interfaces();
+	go_daemon();
 #if defined (NSUPDATE)
 	if (client->config->do_forward_update)
 		dhclient_schedule_updates(client, &client->active->address, 1);
@@ -1311,6 +1362,7 @@ void state_stop (cpp)
 	if (client->active) {
 		script_init(client, "STOP", client->active->medium);
 		script_write_params(client, "old_", client->active);
+		script_write_requested(client);
 		if (client->alias)
 			script_write_params(client, "alias_", client->alias);
 		script_go(client);
@@ -1626,20 +1678,24 @@ struct client_lease *packet_to_lease (packet, client)
 	lease = (struct client_lease *)new_client_lease (MDL);
 
 	if (!lease) {
-		log_error ("packet_to_lease: no memory to record lease.\n");
-		return (struct client_lease *)0;
+		log_error("packet_to_lease: no memory to record lease.\n");
+		return NULL;
 	}
 
-	memset (lease, 0, sizeof *lease);
+	memset(lease, 0, sizeof(*lease));
 
 	/* Copy the lease options. */
-	option_state_reference (&lease -> options, packet -> options, MDL);
+	option_state_reference(&lease->options, packet->options, MDL);
 
-	lease -> address.len = sizeof (packet -> raw -> yiaddr);
-	memcpy (lease -> address.iabuf, &packet -> raw -> yiaddr,
-		lease -> address.len);
+	lease->address.len = sizeof(packet->raw->yiaddr);
+	memcpy(lease->address.iabuf, &packet->raw->yiaddr,
+	       lease->address.len);
 
-	memset (&data, 0, sizeof data);
+	lease->next_srv_addr.len = sizeof(packet->raw->siaddr);
+	memcpy(lease->next_srv_addr.iabuf, &packet->raw->siaddr,
+	       lease->next_srv_addr.len);
+	
+	memset(&data, 0, sizeof(data));
 
 	if (client -> config -> vendor_space_name) {
 		i = DHO_VENDOR_ENCAPSULATED_OPTIONS;
@@ -1724,13 +1780,10 @@ struct client_lease *packet_to_lease (packet, client)
 		}
 	}
 
-	execute_statements_in_scope ((struct binding_value **)0,
-				     (struct packet *)packet,
-				     (struct lease *)0, client,
-				     lease -> options, lease -> options,
-				     &global_scope,
-				     client -> config -> on_receipt,
-				     (struct group *)0);
+	execute_statements_in_scope(NULL, (struct packet *)packet, NULL,
+				    client, lease->options, lease->options,
+				    &global_scope, client->config->on_receipt,
+				    NULL, NULL);
 
 	return lease;
 }
@@ -1785,6 +1838,7 @@ void dhcpnak (packet)
 	 */
 	script_init(client, "EXPIRE", NULL);
 	script_write_params(client, "old_", client->active);
+	script_write_requested(client);
 	if (client->alias)
 		script_write_params(client, "alias_", client->alias);
 	script_go(client);
@@ -1901,11 +1955,14 @@ void send_discover (cpp)
 	      ntohs (sockaddr_broadcast.sin_port), (long)(client -> interval));
 
 	/* Send out a packet. */
-	result = send_packet (client -> interface, (struct packet *)0,
-			      &client -> packet,
-			      client -> packet_length,
-			      inaddr_any, &sockaddr_broadcast,
-			      (struct hardware *)0);
+	result = send_packet(client->interface, NULL, &client->packet,
+			     client->packet_length, inaddr_any,
+                             &sockaddr_broadcast, NULL);
+        if (result < 0) {
+		log_error("%s:%d: Failed to send %d byte long packet over %s "
+			  "interface.", MDL, client->packet_length,
+			  client->interface->name);
+	}
 
 	/*
 	 * If we used 0 microseconds here, and there were other clients on the
@@ -1950,6 +2007,7 @@ void state_panic (cpp)
 			script_init (client, "TIMEOUT",
 				     client -> active -> medium);
 			script_write_params (client, "new_", client -> active);
+			script_write_requested(client);
 			if (client -> alias)
 				script_write_params (client, "alias_",
 						     client -> alias);
@@ -2088,6 +2146,7 @@ void send_request (cpp)
 		/* Run the client script with the new parameters. */
 		script_init (client, "EXPIRE", (struct string_list *)0);
 		script_write_params (client, "old_", client -> active);
+		script_write_requested(client);
 		if (client -> alias)
 			script_write_params (client, "alias_",
 					     client -> alias);
@@ -2168,20 +2227,29 @@ void send_request (cpp)
 	      ntohs (destination.sin_port));
 
 	if (destination.sin_addr.s_addr != INADDR_BROADCAST &&
-	    fallback_interface)
-		result = send_packet (fallback_interface,
-				      (struct packet *)0,
-				      &client -> packet,
-				      client -> packet_length,
-				      from, &destination,
-				      (struct hardware *)0);
-	else
+	    fallback_interface) {
+		result = send_packet(fallback_interface, NULL, &client->packet,
+				     client->packet_length, from, &destination,
+				     NULL);
+		if (result < 0) {
+			log_error("%s:%d: Failed to send %d byte long packet "
+				  "over %s interface.", MDL,
+				  client->packet_length,
+				  fallback_interface->name);
+		}
+        }
+	else {
 		/* Send out a packet. */
-		result = send_packet (client -> interface, (struct packet *)0,
-				      &client -> packet,
-				      client -> packet_length,
-				      from, &destination,
-				      (struct hardware *)0);
+		result = send_packet(client->interface, NULL, &client->packet,
+				     client->packet_length, from, &destination,
+				     NULL);
+		if (result < 0) {
+			log_error("%s:%d: Failed to send %d byte long packet"
+				  " over %s interface.", MDL,
+				  client->packet_length,
+				  client->interface->name);
+		}
+        }
 
 	tv.tv_sec = cur_tv.tv_sec + client->interval;
 	tv.tv_usec = ((tv.tv_sec - cur_tv.tv_sec) > 1) ?
@@ -2197,16 +2265,19 @@ void send_decline (cpp)
 	int result;
 
 	log_info ("DHCPDECLINE on %s to %s port %d",
-	      client -> name ? client -> name : client -> interface -> name,
-	      inet_ntoa (sockaddr_broadcast.sin_addr),
-	      ntohs (sockaddr_broadcast.sin_port));
+	      client->name ? client->name : client->interface->name,
+	      inet_ntoa(sockaddr_broadcast.sin_addr),
+	      ntohs(sockaddr_broadcast.sin_port));
 
 	/* Send out a packet. */
-	result = send_packet (client -> interface, (struct packet *)0,
-			      &client -> packet,
-			      client -> packet_length,
-			      inaddr_any, &sockaddr_broadcast,
-			      (struct hardware *)0);
+	result = send_packet(client->interface, NULL, &client->packet,
+			     client->packet_length, inaddr_any,
+			     &sockaddr_broadcast, NULL);
+	if (result < 0) {
+		log_error("%s:%d: Failed to send %d byte long packet over %s"
+			  " interface.", MDL, client->packet_length,
+			  client->interface->name);
+	}
 }
 
 void send_release (cpp)
@@ -2244,20 +2315,29 @@ void send_release (cpp)
 	      inet_ntoa (destination.sin_addr),
 	      ntohs (destination.sin_port));
 
-	if (fallback_interface)
-		result = send_packet (fallback_interface,
-				      (struct packet *)0,
-				      &client -> packet,
-				      client -> packet_length,
-				      from, &destination,
-				      (struct hardware *)0);
-	else
+	if (fallback_interface) {
+		result = send_packet(fallback_interface, NULL, &client->packet,
+				      client->packet_length, from, &destination,
+				      NULL);
+		if (result < 0) {
+			log_error("%s:%d: Failed to send %d byte long packet"
+				  " over %s interface.", MDL,
+				  client->packet_length,
+				  fallback_interface->name);
+		}
+        } else {
 		/* Send out a packet. */
-		result = send_packet (client -> interface, (struct packet *)0,
-				      &client -> packet,
-				      client -> packet_length,
-				      from, &destination,
-				      (struct hardware *)0);
+		result = send_packet(client->interface, NULL, &client->packet,
+				      client->packet_length, from, &destination,
+				      NULL);
+		if (result < 0) {
+			log_error ("%s:%d: Failed to send %d byte long packet"
+				   " over %s interface.", MDL,
+				   client->packet_length,
+				   client->interface->name);
+		}
+
+        }
 }
 
 void
@@ -2269,24 +2349,24 @@ make_client_options(struct client_state *client, struct client_lease *lease,
 	unsigned i;
 	struct option_cache *oc;
 	struct option *option = NULL;
-	struct buffer *bp = (struct buffer *)0;
+	struct buffer *bp = NULL;
 
 	/* If there are any leftover options, get rid of them. */
 	if (*op)
-		option_state_dereference (op, MDL);
+		option_state_dereference(op, MDL);
 
 	/* Allocate space for options. */
-	option_state_allocate (op, MDL);
+	option_state_allocate(op, MDL);
 
 	/* Send the server identifier if provided. */
 	if (sid)
-		save_option (&dhcp_universe, *op, sid);
+		save_option(&dhcp_universe, *op, sid);
 
-	oc = (struct option_cache *)0;
+	oc = NULL;
 
 	/* Send the requested address if provided. */
 	if (rip) {
-		client -> requested_address = *rip;
+		client->requested_address = *rip;
 		i = DHO_DHCP_REQUESTED_ADDRESS;
 		if (!(option_code_hash_lookup(&option, dhcp_universe.code_hash,
 					      &i, 0, MDL) &&
@@ -2294,22 +2374,22 @@ make_client_options(struct client_state *client, struct client_lease *lease,
 					      option, MDL)))
 			log_error ("can't make requested address cache.");
 		else {
-			save_option (&dhcp_universe, *op, oc);
-			option_cache_dereference (&oc, MDL);
+			save_option(&dhcp_universe, *op, oc);
+			option_cache_dereference(&oc, MDL);
 		}
 		option_dereference(&option, MDL);
 	} else {
-		client -> requested_address.len = 0;
+		client->requested_address.len = 0;
 	}
 
 	i = DHO_DHCP_MESSAGE_TYPE;
 	if (!(option_code_hash_lookup(&option, dhcp_universe.code_hash, &i, 0,
 				      MDL) &&
 	      make_const_option_cache(&oc, NULL, type, 1, option, MDL)))
-		log_error ("can't make message type.");
+		log_error("can't make message type.");
 	else {
-		save_option (&dhcp_universe, *op, oc);
-		option_cache_dereference (&oc, MDL);
+		save_option(&dhcp_universe, *op, oc);
+		option_cache_dereference(&oc, MDL);
 	}
 	option_dereference(&option, MDL);
 
@@ -2322,8 +2402,8 @@ make_client_options(struct client_state *client, struct client_lease *lease,
 			if (prl[i]->universe == &dhcp_universe)
 				len++;
 
-		if (!buffer_allocate (&bp, len, MDL))
-			log_error ("can't make parameter list buffer.");
+		if (!buffer_allocate(&bp, len, MDL))
+			log_error("can't make parameter list buffer.");
 		else {
 			unsigned code = DHO_DHCP_PARAMETER_REQUEST_LIST;
 
@@ -2336,25 +2416,79 @@ make_client_options(struct client_state *client, struct client_lease *lease,
 						      dhcp_universe.code_hash,
 						      &code, 0, MDL) &&
 			      make_const_option_cache(&oc, &bp, NULL, len,
-						      option, MDL)))
+						      option, MDL))) {
+				if (bp != NULL)
+					buffer_dereference(&bp, MDL);
 				log_error ("can't make option cache");
-			else {
-				save_option (&dhcp_universe, *op, oc);
-				option_cache_dereference (&oc, MDL);
+			} else {
+				save_option(&dhcp_universe, *op, oc);
+				option_cache_dereference(&oc, MDL);
 			}
 			option_dereference(&option, MDL);
 		}
 	}
 
+	/*
+	 * If requested (duid_v4 == 1) add an RFC4361 compliant client-identifier
+	 * This can be overridden by including a client id in the configuration
+	 * file.
+	 */
+ 	if (duid_v4 == 1) {
+		struct data_string client_identifier;
+		int hw_idx, hw_len;
+
+		memset(&client_identifier, 0, sizeof(client_identifier));
+		client_identifier.len = 1 + 4 + default_duid.len;
+		if (!buffer_allocate(&client_identifier.buffer,
+				     client_identifier.len, MDL))
+			log_fatal("no memory for default DUID!");
+		client_identifier.data = client_identifier.buffer->data;
+
+		i = DHO_DHCP_CLIENT_IDENTIFIER;
+
+		/* Client-identifier type : 1 byte */
+		*client_identifier.buffer->data = 255;
+		
+		/* IAID : 4 bytes
+		 * we use the low 4 bytes from the interface address
+		 */
+		if (client->interface->hw_address.hlen > 4) {
+			hw_idx = client->interface->hw_address.hlen - 4;
+			hw_len = 4;
+		} else {
+			hw_idx = 0;
+			hw_len = client->interface->hw_address.hlen;
+		}
+		memcpy(&client_identifier.buffer->data + 5 - hw_len,
+		       client->interface->hw_address.hbuf + hw_idx,
+		       hw_len);
+	
+		/* Add the default duid */
+		memcpy(&client_identifier.buffer->data+(1+4),
+		       default_duid.data, default_duid.len);
+
+		/* And save the option */
+		if (!(option_code_hash_lookup(&option, dhcp_universe.code_hash,
+					      &i, 0, MDL) &&
+		      make_const_option_cache(&oc, NULL,
+					      (u_int8_t *)client_identifier.data,
+					      client_identifier.len,
+					      option, MDL)))
+			log_error ("can't make requested client id cache..");
+		else {
+			save_option (&dhcp_universe, *op, oc);
+			option_cache_dereference (&oc, MDL);
+		}
+		option_dereference(&option, MDL);
+	}
+
 	/* Run statements that need to be run on transmission. */
-	if (client -> config -> on_transmission)
-		execute_statements_in_scope
-			((struct binding_value **)0,
-			 (struct packet *)0, (struct lease *)0, client,
-			 (lease ? lease -> options : (struct option_state *)0),
-			 *op, &global_scope,
-			 client -> config -> on_transmission,
-			 (struct group *)0);
+	if (client->config->on_transmission)
+		execute_statements_in_scope(NULL, NULL, NULL, client,
+					    (lease ? lease->options : NULL),
+					    *op, &global_scope,
+					    client->config->on_transmission,
+					    NULL, NULL);
 }
 
 void make_discover (client, lease)
@@ -2720,10 +2854,21 @@ void write_lease_option (struct option_cache *oc,
 	}
 	if (evaluate_option_cache (&ds, packet, lease, client_state,
 				   in_options, cfg_options, scope, oc, MDL)) {
-		fprintf(leaseFile, "%soption %s%s%s %s;\n", preamble,
-			name, dot, oc->option->name,
-			pretty_print_option(oc->option, ds.data, ds.len,
-					    1, 1));
+		/* The option name */
+		fprintf(leaseFile, "%soption %s%s%s", preamble,
+			name, dot, oc->option->name);
+
+		/* The option value if there is one */
+		if ((oc->option->format == NULL) ||
+		    (oc->option->format[0] != 'Z')) {
+			fprintf(leaseFile, " %s",
+				pretty_print_option(oc->option, ds.data,
+						    ds.len, 1, 1));
+		}
+
+		/* The closing semi-colon and newline */
+		fprintf(leaseFile, ";\n");
+
 		data_string_forget (&ds, MDL);
 	}
 }
@@ -2739,6 +2884,78 @@ write_options(struct client_state *client, struct option_state *options,
 		option_space_foreach(NULL, NULL, client, NULL, options,
 				     &global_scope, universes[i],
 				     (char *)preamble, write_lease_option);
+	}
+}
+
+/*
+ * The "best" default DUID, since we cannot predict any information
+ * about the system (such as whether or not the hardware addresses are
+ * integrated into the motherboard or similar), is the "LLT", link local
+ * plus time, DUID. For real stateless "LL" is better.
+ *
+ * Once generated, this duid is stored into the state database, and
+ * retained across restarts.
+ *
+ * For the time being, there is probably a different state database for
+ * every daemon, so this winds up being a per-interface identifier...which
+ * is not how it is intended.  Upcoming rearchitecting the client should
+ * address this "one daemon model."
+ */
+void
+form_duid(struct data_string *duid, const char *file, int line)
+{
+	struct interface_info *ip;
+	int len;
+	char *str;
+
+	/* For now, just use the first interface on the list. */
+	ip = interfaces;
+
+	if (ip == NULL)
+		log_fatal("Impossible condition at %s:%d.", MDL);
+
+	if ((ip->hw_address.hlen == 0) ||
+	    (ip->hw_address.hlen > sizeof(ip->hw_address.hbuf)))
+		log_fatal("Impossible hardware address length at %s:%d.", MDL);
+
+	if (duid_type == 0)
+		duid_type = stateless ? DUID_LL : DUID_LLT;
+
+	/*
+	 * 2 bytes for the 'duid type' field.
+	 * 2 bytes for the 'htype' field.
+	 * (DUID_LLT) 4 bytes for the 'current time'.
+	 * enough bytes for the hardware address (note that hw_address has
+	 * the 'htype' on byte zero).
+	 */
+	len = 4 + (ip->hw_address.hlen - 1);
+	if (duid_type == DUID_LLT)
+		len += 4;
+	if (!buffer_allocate(&duid->buffer, len, MDL))
+		log_fatal("no memory for default DUID!");
+	duid->data = duid->buffer->data;
+	duid->len = len;
+
+	/* Basic Link Local Address type of DUID. */
+	if (duid_type == DUID_LLT) {
+		putUShort(duid->buffer->data, DUID_LLT);
+		putUShort(duid->buffer->data + 2, ip->hw_address.hbuf[0]);
+		putULong(duid->buffer->data + 4, cur_time - DUID_TIME_EPOCH);
+		memcpy(duid->buffer->data + 8, ip->hw_address.hbuf + 1,
+		       ip->hw_address.hlen - 1);
+	} else {
+		putUShort(duid->buffer->data, DUID_LL);
+		putUShort(duid->buffer->data + 2, ip->hw_address.hbuf[0]);
+		memcpy(duid->buffer->data + 4, ip->hw_address.hbuf + 1,
+		       ip->hw_address.hlen - 1);
+	}
+
+	str = quotify_buf(duid->data, duid->len, MDL);
+	if (str == NULL)
+		log_info("Created duid.");
+	else {
+		log_info("Created duid %s.", str);
+		dfree(str, MDL);
 	}
 }
 
@@ -3141,6 +3358,13 @@ void script_write_params (client, prefix, lease)
 	client_envadd (client,
 		       prefix, "ip_address", "%s", piaddr (lease -> address));
 
+	/* If we've set the next server address in the lease structure
+	   put it into an environment variable for the script */
+	if (lease->next_srv_addr.len != 0) {
+		client_envadd(client, prefix, "next_server", "%s",
+			      piaddr(lease->next_srv_addr));
+	}
+
 	/* For the benefit of Linux (and operating systems which may
 	   have similar needs), compute the network address based on
 	   the supplied ip address and netmask, if provided.  Also
@@ -3221,7 +3445,6 @@ void script_write_params (client, prefix, lease)
 				  lease->server_name);
 		}
 	}
-				
 
 	for (i = 0; i < lease -> options -> universe_count; i++) {
 		option_space_foreach ((struct packet *)0, (struct lease *)0,
@@ -3231,6 +3454,31 @@ void script_write_params (client, prefix, lease)
 				      &es, client_option_envadd);
 	}
 	client_envadd (client, prefix, "expiry", "%d", (int)(lease -> expiry));
+}
+
+/*
+ * Write out the environment variables for the objects that the
+ * client requested.  If the object was requested the variable will be:
+ * requested_<option_name>=1
+ * If it wasn't requested there won't be a variable.
+ */
+void script_write_requested(client)
+	struct client_state *client;
+{
+	int i;
+	struct option **req;
+	char name[256];
+	req = client->config->requested_options;
+
+	if (req == NULL)
+		return;
+
+	for (i = 0 ; req[i] != NULL ; i++) {
+		if ((req[i]->universe == &dhcp_universe) &&
+		    dhcp_option_ev_name(name, sizeof(name), req[i])) {
+			client_envadd(client, "requested_", name, "%d", 1);
+		}
+	}
 }
 
 int script_go (client)
@@ -3412,17 +3660,17 @@ void go_daemon ()
 	else if (pid)
 		exit (0);
 	/* Become session leader and get pid... */
-	pid = setsid ();
+	(void) setsid ();
 
 	/* Close standard I/O descriptors. */
-	close(0);
-	close(1);
-	close(2);
+	(void) close(0);
+	(void) close(1);
+	(void) close(2);
 
 	/* Reopen them on /dev/null. */
-	open("/dev/null", O_RDWR);
-	open("/dev/null", O_RDWR);
-	open("/dev/null", O_RDWR);
+	(void) open("/dev/null", O_RDWR);
+	(void) open("/dev/null", O_RDWR);
+	(void) open("/dev/null", O_RDWR);
 
 	write_client_pid_file ();
 
@@ -3540,6 +3788,7 @@ void do_release(client)
 			script_write_params (client, "alias_",
 					     client -> alias);
 		script_write_params (client, "old_", client -> active);
+		script_write_requested(client);
 		script_go (client);
 	}
 
@@ -3676,6 +3925,9 @@ unsigned cons_agent_information_options (cfg_options, outpacket,
 
 static void shutdown_exit (void *foo)
 {
+	/* get rid of the pid if we can */
+	if (no_pid_file == ISC_FALSE)
+		(void) unlink(path_dhclient_pid);
 	exit (0);
 }
 
@@ -3706,7 +3958,7 @@ client_dns_remove_action(dhcp_ddns_cb_t *ddns_cb,
 		/* Do the second stage of the FWD removal */
 		ddns_cb->state = DDNS_STATE_REM_FW_NXRR;
 
-		result = ddns_modify_fwd(ddns_cb);
+		result = ddns_modify_fwd(ddns_cb, MDL);
 		if (result == ISC_R_SUCCESS) {
 			return;
 		}
@@ -3726,7 +3978,7 @@ client_dns_remove(struct client_state *client,
 
 	/* if we have an old ddns request for this client, cancel it */
 	if (client->ddns_cb != NULL) {
-		ddns_cancel(client->ddns_cb);
+		ddns_cancel(client->ddns_cb, MDL);
 		client->ddns_cb = NULL;
 	}
 	
@@ -3754,6 +4006,20 @@ isc_result_t dhcp_set_control_state (control_object_state_t oldstate,
 	struct interface_info *ip;
 	struct client_state *client;
 	struct timeval tv;
+
+	if (newstate == server_shutdown) {
+		/* Re-entry */
+		if (shutdown_signal == SIGUSR1)
+			return ISC_R_SUCCESS;
+		/* Log shutdown on signal. */
+		if ((shutdown_signal == SIGINT) ||
+		    (shutdown_signal == SIGTERM)) {
+			log_info("Received signal %d, initiating shutdown.",
+				 shutdown_signal);
+		}
+		/* Mark it was called. */
+		shutdown_signal = SIGUSR1;
+	}
 
 	/* Do the right thing for each interface. */
 	for (ip = interfaces; ip; ip = ip -> next) {
@@ -3884,7 +4150,7 @@ client_dns_update_action(dhcp_ddns_cb_t *ddns_cb,
 			ddns_cb->state = DDNS_STATE_ADD_FW_YXDHCID;
 			ddns_cb->cur_func = client_dns_update_action;
 
-			result = ddns_modify_fwd(ddns_cb);
+			result = ddns_modify_fwd(ddns_cb, MDL);
 			if (result == ISC_R_SUCCESS) {
 				return;
 			}
@@ -3930,6 +4196,7 @@ client_dns_update(struct client_state *client, dhcp_ddns_cb_t *ddns_cb)
 	struct option_cache *oc;
 	int ignorep;
 	int result;
+	int ddns_v4_type;
 	isc_result_t rcode;
 
 	/* If we didn't send an FQDN option, we certainly aren't going to
@@ -3972,47 +4239,82 @@ client_dns_update(struct client_state *client, dhcp_ddns_cb_t *ddns_cb)
 				    &global_scope, oc, MDL))
 		return ISC_R_SUCCESS;
 
-	/* If this is a DHCPv6 client update, make a dhcid string out of
-	 * the DUID.  If this is a DHCPv4 client update, choose either
-	 * the client identifier, if there is one, or the interface's
-	 * MAC address.
+	/*
+	 * Construct the DHCID value for use in the DDNS update process
+	 * We have the newer standard version and the older interim version
+	 * chosen by the '-I' option.  The interim version is left as is
+	 * for backwards compatibility.  The standard version is based on
+	 * RFC 4701 section 3.3
 	 */
+
 	result = 0;
+	POST(result);
 	memset(&client_identifier, 0, sizeof(client_identifier));
+
+	if (std_dhcid == 1) {
+		/* standard style */
+		ddns_cb->dhcid_class = dns_rdatatype_dhcid;
+		ddns_v4_type = 1;
+	} else {
+		/* interim style */
+		ddns_cb->dhcid_class = dns_rdatatype_txt;
+		/* for backwards compatibility */
+		ddns_v4_type = DHO_DHCP_CLIENT_IDENTIFIER;
+	}
 	if (client->active_lease != NULL) {
-		if (((oc =
-		      lookup_option(&dhcpv6_universe, client->sent_options,
-				    D6O_CLIENTID)) != NULL) &&
-		    evaluate_option_cache(&client_identifier, NULL, NULL,
-					  client, client->sent_options, NULL,
+		/* V6 request, get the client identifier, then
+		 * construct the dhcid for either standard 
+		 * or interim */
+		if (((oc = lookup_option(&dhcpv6_universe,
+					 client->sent_options,
+					 D6O_CLIENTID)) != NULL) &&
+		    evaluate_option_cache(&client_identifier, NULL,
+					  NULL, client,
+					  client->sent_options, NULL,
 					  &global_scope, oc, MDL)) {
-			/* RFC4701 defines type '2' as being for the DUID
-			 * field.  We aren't using RFC4701 DHCID RR's yet,
-			 * but this is as good a value as any.
-			 */
-			result = get_dhcid(&ddns_cb->dhcid, 2,
+			result = get_dhcid(ddns_cb, 2,
 					   client_identifier.data,
 					   client_identifier.len);
 			data_string_forget(&client_identifier, MDL);
 		} else
 			log_fatal("Impossible condition at %s:%d.", MDL);
 	} else {
-		if (((oc =
-		      lookup_option(&dhcp_universe, client->sent_options,
-				    DHO_DHCP_CLIENT_IDENTIFIER)) != NULL) &&
-		    evaluate_option_cache(&client_identifier, NULL, NULL,
-					  client, client->sent_options, NULL,
+		/*
+		 * V4 request, use the client id if there is one or the
+		 * mac address if there isn't.  If we have a client id
+		 * we check to see if it is an embedded DUID.
+		 */
+		if (((oc = lookup_option(&dhcp_universe,
+					 client->sent_options,
+					 DHO_DHCP_CLIENT_IDENTIFIER)) != NULL) &&
+		    evaluate_option_cache(&client_identifier, NULL,
+					  NULL, client,
+					  client->sent_options, NULL,
 					  &global_scope, oc, MDL)) {
-			result = get_dhcid(&ddns_cb->dhcid,
-					   DHO_DHCP_CLIENT_IDENTIFIER,
-					   client_identifier.data,
-					   client_identifier.len);
+			if ((std_dhcid == 1) && (duid_v4 == 1) &&
+			    (client_identifier.data[0] == 255)) {
+				/*
+				 * This appears to be an embedded DUID,
+				 * extract it and treat it as such
+				 */
+				if (client_identifier.len <= 5)
+					log_fatal("Impossible condition at %s:%d.",
+						  MDL);
+				result = get_dhcid(ddns_cb, 2,
+						   client_identifier.data + 5,
+						   client_identifier.len - 5);
+			} else {
+				result = get_dhcid(ddns_cb, ddns_v4_type,
+						   client_identifier.data,
+						   client_identifier.len);
+			}
 			data_string_forget(&client_identifier, MDL);
 		} else
-			result = get_dhcid(&ddns_cb->dhcid, 0,
+			result = get_dhcid(ddns_cb, 0,
 					   client->interface->hw_address.hbuf,
 					   client->interface->hw_address.hlen);
 	}
+
 	if (!result) {
 		return ISC_R_SUCCESS;
 	}
@@ -4021,7 +4323,7 @@ client_dns_update(struct client_state *client, dhcp_ddns_cb_t *ddns_cb)
 	 * Perform updates.
 	 */
 	if (ddns_cb->fwd_name.len && ddns_cb->dhcid.len) {
-		rcode = ddns_modify_fwd(ddns_cb);
+		rcode = ddns_modify_fwd(ddns_cb, MDL);
 	} else
 		rcode = ISC_R_FAILURE;
 
@@ -4054,7 +4356,7 @@ dhclient_schedule_updates(struct client_state *client,
 
 	/* cancel any outstanding ddns requests */
 	if (client->ddns_cb != NULL) {
-		ddns_cancel(client->ddns_cb);
+		ddns_cancel(client->ddns_cb, MDL);
 		client->ddns_cb = NULL;
 	}
 
@@ -4104,14 +4406,16 @@ dhcpv4_client_assignments(void)
 	if (!local_port) {
 		/* If we're faking a relay agent, and we're not using loopback,
 		   use the server port, not the client port. */
-		if (mockup_relay && giaddr.s_addr != htonl (INADDR_LOOPBACK)) {
+		if (mockup_relay && giaddr.s_addr != htonl(INADDR_LOOPBACK)) {
 			local_port = htons(67);
 		} else {
-			ent = getservbyname ("dhcpc", "udp");
-			if (!ent)
-				local_port = htons (68);
+			ent = getservbyname("dhcpc", "udp");
+			if (ent == NULL)
+				ent = getservbyname("bootpc", "udp");
+			if (ent == NULL)
+				local_port = htons(68);
 			else
-				local_port = ent -> s_port;
+				local_port = ent->s_port;
 #ifndef __CYGWIN32__
 			endservent ();
 #endif
@@ -4120,10 +4424,10 @@ dhcpv4_client_assignments(void)
 
 	/* If we're faking a relay agent, and we're not using loopback,
 	   we're using the server port, not the client port. */
-	if (mockup_relay && giaddr.s_addr != htonl (INADDR_LOOPBACK)) {
+	if (mockup_relay && giaddr.s_addr != htonl(INADDR_LOOPBACK)) {
 		remote_port = local_port;
 	} else
-		remote_port = htons (ntohs (local_port) - 1);   /* XXX */
+		remote_port = htons(ntohs(local_port) - 1);   /* XXX */
 }
 
 /*
@@ -4280,3 +4584,4 @@ add_reject(struct packet *packet) {
 	 */
 	log_info("Server added to list of rejected servers.");
 }
+
