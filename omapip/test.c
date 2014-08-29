@@ -3,7 +3,7 @@
    Test code for omapip... */
 
 /*
- * Copyright (c) 2009-2010 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2009-2010,2013-2014 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
@@ -25,12 +25,6 @@
  *   <info@isc.org>
  *   https://www.isc.org/
  *
- * This software has been written for Internet Systems Consortium
- * by Ted Lemon in cooperation with Vixie Enterprises and Nominum, Inc.
- * To learn more about Internet Systems Consortium, see
- * ``https://www.isc.org/''.  To learn more about Vixie Enterprises,
- * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
- * ``http://www.nominum.com''.
  */
 
 #include "config.h"
@@ -51,7 +45,8 @@ int main (int argc, char **argv)
 	omapi_object_t *connection = (omapi_object_t*)0;
 	isc_result_t status;
 
-	status = dhcp_context_create();
+	status = dhcp_context_create(DHCP_CONTEXT_PRE_DB | DHCP_CONTEXT_POST_DB,
+				     NULL, NULL);
 	if (status != ISC_R_SUCCESS) {
 		fprintf(stderr, "Can't initialize context: %s\n",
 			isc_result_totext(status));

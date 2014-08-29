@@ -3,7 +3,7 @@
    Turn data structures into printable text. */
 
 /*
- * Copyright (c) 2009-2011 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2009-2014 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
@@ -25,12 +25,6 @@
  *   <info@isc.org>
  *   https://www.isc.org/
  *
- * This software has been written for Internet Systems Consortium
- * by Ted Lemon in cooperation with Vixie Enterprises and Nominum, Inc.
- * To learn more about Internet Systems Consortium, see
- * ``https://www.isc.org/''.  To learn more about Vixie Enterprises,
- * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
- * ``http://www.nominum.com''.
  */
 
 #include "dhcpd.h"
@@ -479,10 +473,9 @@ char *print_dotted_quads (len, data)
 {
 	static char dq_buf [DQLEN + 1];
 	int i;
-	char *s, *last;
+	char *s;
 
 	s = &dq_buf [0];
-	last = s;
 	
 	i = 0;
 
@@ -1135,6 +1128,7 @@ static unsigned print_subexpression (expr, buf, len)
 			buf [rv] = 0;
 			return rv;
 		}
+		break;
 
 	      case expr_gethostname:
 		if (len > 13) {
@@ -1193,7 +1187,7 @@ int token_print_indent_concat (FILE *file, int col,  int indent,
 	}
 	va_end (list);
 	
-	len = token_print_indent (file, col, indent,
+	col = token_print_indent (file, col, indent,
 				  prefix, suffix, t);
 	dfree (t, MDL);
 	return col;
@@ -1246,7 +1240,12 @@ int token_print_indent (FILE *file, int col, int indent,
 			const char *prefix,
 			const char *suffix, const char *buf)
 {
-	int len = strlen (buf) + strlen (prefix);
+	int len = 0;
+	if (prefix != NULL)
+		len += strlen (prefix);
+	if (buf != NULL)
+		len += strlen (buf);
+
 	if (col + len > 79) {
 		if (indent + len < 79) {
 			indent_spaces (file, indent);
@@ -1259,8 +1258,10 @@ int token_print_indent (FILE *file, int col, int indent,
 		fputs (prefix, file);
 		col += strlen (prefix);
 	}
-	fputs (buf, file);
-	col += len;
+	if ((buf != NULL) && (*buf != 0)) {
+		fputs (buf, file);
+		col += strlen(buf);
+	}
 	if (suffix && *suffix) {
 		if (col + strlen (suffix) > 79) {
 			indent_spaces (file, indent);

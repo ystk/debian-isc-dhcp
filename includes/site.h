@@ -108,6 +108,9 @@
 
 /* #define DEBUG_DNS_UPDATES */
 
+/* Define this if you want to debug the host part of the inform processing */
+/* #define DEBUG_INFORM_HOST */
+
 /* Define this if you want DHCP failover protocol support in the DHCP
    server. */
 
@@ -116,6 +119,10 @@
 /* Define this if you want DNS update functionality to be available. */
 
 #define NSUPDATE
+
+/* Define this if you want to enable the DHCP server attempting to
+   find a nameserver to use for DDNS updates. */
+#define DNS_ZONE_LOOKUP
 
 /* Define this if you want the dhcpd.pid file to go somewhere other than
    the default (which varies from system to system, but is usually either
@@ -227,3 +234,96 @@
    future. */
 
 #define ACCEPT_LIST_IN_DOMAIN_NAME
+
+/* In previous versions of the code when the server generates a NAK
+   it doesn't attempt to determine if the configuration included a
+   server ID for that client.  Defining this option causes the server
+   to make a modest effort to determine the server id when building
+   a NAK as a response.  This effort will only check the first subnet
+   and pool associated with a shared subnet and will not check for
+   host declarations.  With some configurations the server id
+   computed for a NAK may not match that computed for an ACK. */
+
+#define SERVER_ID_FOR_NAK
+
+/* When processing a request do a simple check to compare the
+   server id the client sent with the one the server would send.
+   In order to minimize the complexity of the code the server
+   only checks for a server id option in the global and subnet
+   scopes.  Complicated configurations may result in differnet
+   server ids for this check and when the server id for a reply
+   packet is determined, which would prohibit the server from
+   responding.
+
+   The primary use for this option is when a client broadcasts
+   a request but requires the response to come from one of the
+   failover peers.  An example of this would be when a client
+   reboots while its lease is still active - in this case both
+   servers will normally respond.  Most of the time the client
+   won't check the server id and can use either of the responses.
+   However if the client does check the server id it may reject
+   the response if it came from the wrong peer.  If the timing
+   is such that the "wrong" peer responds first most of the time
+   the client may not get an address for some time.
+
+   Currently this option is only available when failover is in
+   use.
+
+   Care should be taken before enabling this option. */
+
+/* #define SERVER_ID_CHECK */
+
+/* Include code to do a slow transition of DDNS records
+   from the interim to the standard version, or backwards.
+   The normal code will handle removing an old style record
+   when the name on a lease is being changed.  This adds code
+   to handle the case where the name isn't being changed but
+   the old record should be removed to allow a new record to
+   be added.  This is the slow transition as leases are only
+   updated as a client touches them.  A fast transition would
+   entail updating all the records at once, probably at start
+   up. */
+#define DDNS_UPDATE_SLOW_TRANSITION
+
+/* Define the default prefix length passed from the client to
+   the script when modifying an IPv6 IA_NA or IA_TA address.
+   The two most useful values are 128 which is what the current
+   specifications call for or 64 which is what has been used in
+   the past.  For most OSes 128 will indicate that the address
+   is a host address and doesn't include any on-link information.
+   64 indicates that the first 64 bits are the subnet or on-link
+   prefix. */
+#define DHCLIENT_DEFAULT_PREFIX_LEN 64
+
+/* Enable the gentle shutdown signal handling.  Currently this
+   means that on SIGINT or SIGTERM a client will release its
+   address and a server in a failover pair will go through
+   partner down.  Both of which can be undesireable in some
+   situations.  We plan to revisit this feature and may
+   make non-backwards compatible changes including the
+   removal of this define.  Use at your own risk.  */
+/* #define ENABLE_GENTLE_SHUTDOWN */
+
+/* Include definitions for various options.  In general these
+   should be left as is, but if you have already defined one
+   of these and prefer your definition you can comment the 
+   RFC define out to avoid conflicts */
+#define RFC2937_OPTIONS
+#define RFC4776_OPTIONS
+#define RFC4833_OPTIONS
+#define RFC4994_OPTIONS
+#define RFC5192_OPTIONS
+#define RFC5223_OPTIONS
+#define RFC5417_OPTIONS
+#define RFC5460_OPTIONS
+#define RFC5969_OPTIONS
+#define RFC5970_OPTIONS
+#define RFC5986_OPTIONS
+#define RFC6011_OPTIONS
+#define RFC6334_OPTIONS
+#define RFC6440_OPTIONS
+#define RFC6731_OPTIONS
+#define RFC6939_OPTIONS
+#define RFC6977_OPTIONS
+#define RFC7083_OPTIONS
+

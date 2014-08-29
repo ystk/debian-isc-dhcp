@@ -3,7 +3,7 @@
    Definitions for dhcpd... */
 
 /*
- * Copyright (c) 2004-2011 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2014 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -24,13 +24,9 @@
  *   <info@isc.org>
  *   https://www.isc.org/
  *
- * This software has been written for Internet Systems Consortium
- * by Ted Lemon in cooperation with Vixie Enterprises and Nominum, Inc.
- * To learn more about Internet Systems Consortium, see
- * ``https://www.isc.org/''.  To learn more about Vixie Enterprises,
- * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
- * ``http://www.nominum.com''.
  */
+
+/*! \file includes/dhcpd.h */
 
 #include "config.h"
 
@@ -432,11 +428,17 @@ struct packet {
 	isc_boolean_t unicast;
 };
 
-/* A network interface's MAC address. */
+/*
+ * A network interface's MAC address.
+ * 20 bytes for the hardware address
+ * and 1 byte for the type tag
+ */
+
+#define HARDWARE_ADDR_LEN 20
 
 struct hardware {
 	u_int8_t hlen;
-	u_int8_t hbuf [17];
+	u_int8_t hbuf[HARDWARE_ADDR_LEN + 1];
 };
 
 #if defined(LDAP_CONFIGURATION)
@@ -491,6 +493,16 @@ typedef u_int8_t binding_state_t;
 /* FTS_LAST is the highest value that is valid for a lease binding state. */
 #define FTS_LAST FTS_BACKUP
 
+/*
+ * A block for the on statements so we can share the structure
+ * between v4 and v6
+ */
+struct on_star {
+	struct executable_statement *on_expiry;
+	struct executable_statement *on_commit;
+	struct executable_statement *on_release;
+};
+
 /* A dhcp lease declaration structure. */
 struct lease {
 	OMAPI_OBJECT_PREAMBLE;
@@ -507,9 +519,8 @@ struct lease {
 	struct class *billing_class;
 	struct option_chain_head *agent_options;
 
-	struct executable_statement *on_expiry;
-	struct executable_statement *on_commit;
-	struct executable_statement *on_release;
+	/* insert the structure directly */
+	struct on_star on_star;
 
 	unsigned char *uid;
 	unsigned short uid_len;
@@ -629,6 +640,7 @@ struct lease_state {
 #define DDNS_UPDATE_STYLE_NONE		0
 #define DDNS_UPDATE_STYLE_AD_HOC	1
 #define DDNS_UPDATE_STYLE_INTERIM	2
+#define DDNS_UPDATE_STYLE_STANDARD	3
 
 /* Server option names. */
 
@@ -713,6 +725,13 @@ struct lease_state {
 # define SV_LDAP_TLS_RANDFILE           77
 #endif
 #endif
+#define SV_CACHE_THRESHOLD		78
+#define SV_DONT_USE_FSYNC		79
+#define SV_DDNS_LOCAL_ADDRESS4		80
+#define SV_DDNS_LOCAL_ADDRESS6		81
+#define SV_IGNORE_CLIENT_UIDS		82
+#define SV_LOG_THRESHOLD_LOW		83
+#define SV_LOG_THRESHOLD_HIGH		84
 
 #if !defined (DEFAULT_PING_TIMEOUT)
 # define DEFAULT_PING_TIMEOUT 1
@@ -734,27 +753,8 @@ struct lease_state {
 # define DEFAULT_MIN_ACK_DELAY_USECS 10000 /* 1/100 second */
 #endif
 
-#if defined(LDAP_CONFIGURATION)
-# define SV_LDAP_SERVER			60
-# define SV_LDAP_PORT			61
-# define SV_LDAP_USERNAME		62
-# define SV_LDAP_PASSWORD		63
-# define SV_LDAP_BASE_DN		64
-# define SV_LDAP_METHOD			65
-# define SV_LDAP_DEBUG_FILE		66
-# define SV_LDAP_DHCP_SERVER_CN		67
-# define SV_LDAP_REFERRALS		68
-#if defined (LDAP_USE_SSL)
-# define SV_LDAP_SSL			69
-# define SV_LDAP_TLS_REQCERT		70
-# define SV_LDAP_TLS_CA_FILE		71
-# define SV_LDAP_TLS_CA_DIR		72
-# define SV_LDAP_TLS_CERT		73
-# define SV_LDAP_TLS_KEY		74
-# define SV_LDAP_TLS_CRLCHECK		75
-# define SV_LDAP_TLS_CIPHERS		76
-# define SV_LDAP_TLS_RANDFILE		77
-#endif
+#if !defined (DEFAULT_CACHE_THRESHOLD)
+# define DEFAULT_CACHE_THRESHOLD 25
 #endif
 
 #if !defined (DEFAULT_DEFAULT_LEASE_TIME)
@@ -881,6 +881,10 @@ struct host_decl {
 #define HOST_DECL_DELETED	1
 #define HOST_DECL_DYNAMIC	2
 #define HOST_DECL_STATIC	4
+	/* For v6 the host-identifer option can specify which relay
+	   to use when trying to look up an option.  We store the
+	   value here. */
+	int relays;
 };
 
 struct permit {
@@ -923,6 +927,8 @@ struct pool {
 #if defined (FAILOVER_PROTOCOL)
 	dhcp_failover_state_t *failover_peer;
 #endif
+	int logged;		/* already logged a message */
+	int low_threshold;	/* low threshold to restart logging */
 };
 
 struct shared_network {
@@ -936,9 +942,7 @@ struct shared_network {
 	struct subnet *subnets;
 	struct interface_info *interface;
 	struct pool *pools;
-	struct ipv6_pool **ipv6_pools;		/* NULL-terminated array */
-	int last_ipv6_pool;			/* offset of last IPv6 pool
-						   used to issue a lease */
+	struct ipv6_pond *ipv6_pond;
 	struct group *group;
 #if defined (FAILOVER_PROTOCOL)
 	dhcp_failover_state_t *failover_peer;
@@ -1026,6 +1030,7 @@ struct client_lease {
 	unsigned int is_bootp: 1;  /* If set, lease was acquired with BOOTP. */
 
 	struct option_state *options;	     /* Options supplied with lease. */
+	struct iaddr next_srv_addr;	/* Address of the next server to use */
 };
 
 /* DHCPv6 lease structures */
@@ -1368,13 +1373,18 @@ struct dns_query {
 	int backoff;			/* Current backoff, in seconds. */
 };
 
+#define DNS_ZONE_ACTIVE  0
+#define DNS_ZONE_INACTIVE 1
 struct dns_zone {
 	int refcnt;
 	TIME timeout;
 	char *name;
 	struct option_cache *primary;
 	struct option_cache *secondary;
+	struct option_cache *primary6;
+	struct option_cache *secondary6;
 	struct auth_key *key;
+	u_int16_t flags;
 };
 
 struct icmp_state {
@@ -1478,6 +1488,12 @@ typedef unsigned char option_mask [16];
 #define MAX_TIME 0x7fffffff
 #define MIN_TIME 0
 
+#ifdef USE_LOG_PID
+/* include the pid in the syslog messages */
+#define DHCP_LOG_OPTIONS LOG_NDELAY | LOG_PID
+#else
+#define DHCP_LOG_OPTIONS LOG_NDELAY
+#endif
 						/* these are referenced */
 typedef struct hash_table ia_hash_t;
 typedef struct hash_table iasubopt_hash_t;
@@ -1513,6 +1529,8 @@ struct iasubopt {
 	 */
 	struct dhcp_ddns_cb *ddns_cb;
 
+	/* space for the on * executable statements */
+	struct on_star on_star;
 };
 
 struct ia_xx {
@@ -1529,6 +1547,26 @@ extern ia_hash_t *ia_na_active;
 extern ia_hash_t *ia_ta_active;
 extern ia_hash_t *ia_pd_active;
 
+/*!
+ *
+ * \brief ipv6_pool structure
+ *
+ * This structure is part of a range of addresses or prefixes.
+ * A range6 or prefix6 statement will map to one or more of these
+ * with each pool being a simple block of the form xxxx/yyy and
+ * all the pools adding up to comprise the entire range.  When
+ * choosing an address or prefix the code will walk through the
+ * pools until it finds one that is available.
+ *
+ * The naming for this structure is unfortunate as there is also
+ * a v4 pool structure and the two are not equivalent.  The v4
+ * pool matches the ipv6_pond structure.  I considered changing the
+ * name of this structure but concluded that doing so would be worse
+ * than leaving it as is.  Changing it adds some risk and makes for
+ * larger differences between the 4.1 & 4.2 code and the 4.3 code.
+ *
+ */
+
 struct ipv6_pool {
 	int refcnt;				/* reference count */
 	u_int16_t pool_type;			/* IA_xx */
@@ -1544,6 +1582,38 @@ struct ipv6_pool {
 	struct shared_network *shared_network;	/* shared_network for
 						   this pool */
 	struct subnet *subnet;			/* subnet for this pool */
+	struct ipv6_pond *ipv6_pond;		/* pond for this pool */
+};
+
+/*!
+ *
+ * \brief ipv6_pond structure
+ *
+ * This structure is the ipv6 version of the v4 pool structure.
+ * It contains the address and prefix information via the pointers
+ * to the ipv6_pools and the allowability of this pool for a given
+ * client via the permit lists and the valid TIMEs.
+ *
+ */
+
+struct ipv6_pond {
+	int refcnt;
+	struct ipv6_pond *next;
+	struct group *group;
+	struct shared_network *shared_network; /* backpointer to the enclosing
+						  shared network */
+	struct permit *permit_list;	/* allow clients from this list */
+	struct permit *prohibit_list;	/* deny clients from this list */
+	TIME valid_from;		/* deny pool use before this date */
+	TIME valid_until;		/* deny pool use after this date */
+
+	struct ipv6_pool **ipv6_pools;	/* NULL-terminated array */
+	int last_ipv6_pool;		/* offset of last IPv6 pool
+					   used to issue a lease */
+	int num_total;			/* Total number of elements in the pond */
+	int num_active;			/* Number of elements in the pond in use */
+	int logged;			/* already logged a message */
+	int low_threshold;		/* low threshold to restart logging */
 };
 
 /* Flags and state for dhcp_ddns_cb_t */
@@ -1554,7 +1624,8 @@ struct ipv6_pool {
 #define DDNS_CLIENT_DID_UPDATE  0x10
 #define DDNS_EXECUTE_NEXT       0x20
 #define DDNS_ABORT              0x40
-
+#define DDNS_STATIC_LEASE       0x80
+#define DDNS_ACTIVE_LEASE	0x100
 /*
  * The following two groups are separate and we could reuse
  * values but not reusing them may be useful in the future.
@@ -1595,7 +1666,7 @@ typedef struct dhcp_ddns_cb {
 	int zone_addr_count;
 	struct dns_zone *zone;
 
-	int flags;
+	u_int16_t flags;
 	TIME timeout;
 	int state;
 	ddns_action_t cur_func;
@@ -1608,6 +1679,9 @@ typedef struct dhcp_ddns_cb {
 
 	void *transaction;
 	void *dataspace;
+
+	dns_rdataclass_t dhcid_class;
+	char *lease_tag;
 } dhcp_ddns_cb_t;
 
 extern struct ipv6_pool **pools;
@@ -1708,6 +1782,11 @@ int get_option (struct data_string *, struct universe *,
 		struct option_state *, struct option_state *,
 		struct option_state *, struct binding_scope **, unsigned,
 		const char *, int);
+int get_option_int (int *, struct universe *,
+		    struct packet *, struct lease *, struct client_state *,
+		    struct option_state *, struct option_state *,
+		    struct option_state *, struct binding_scope **, unsigned,
+		    const char *, int);
 void set_option (struct universe *, struct option_state *,
 		 struct option_cache *, enum statement_op);
 struct option_cache *lookup_option (struct universe *,
@@ -1850,6 +1929,8 @@ void do_packet6(struct interface_info *, const char *,
 		int, int, const struct iaddr *, isc_boolean_t);
 int packet6_len_okay(const char *, int);
 
+int validate_packet(struct packet *);
+
 int add_option(struct option_state *options,
 	       unsigned int option_num,
 	       void *data,
@@ -1860,6 +1941,7 @@ extern struct timeval cur_tv;
 #define cur_time cur_tv.tv_sec
 
 extern int ddns_update_style;
+extern int dont_use_fsync;
 
 extern const char *path_dhcpd_conf;
 extern const char *path_dhcpd_db;
@@ -1895,6 +1977,12 @@ enum dhcp_token next_raw_token(const char **rval, unsigned *rlen,
 			       struct parse *cfile);
 enum dhcp_token peek_raw_token(const char **rval, unsigned *rlen,
 			       struct parse *cfile);
+/*
+ * Use skip_token when we are skipping a token we have previously
+ * used peek_token on as we know what the result will be in this case.
+ */
+#define skip_token(a,b,c) ((void) next_token((a),(b),(c)))
+
 
 /* confpars.c */
 void parse_trace_setup (void);
@@ -1935,19 +2023,23 @@ int parse_ip6_addr_expr(struct expression **, struct parse *);
 int parse_ip6_prefix(struct parse *, struct iaddr *, u_int8_t *);
 void parse_address_range (struct parse *, struct group *, int,
 			  struct pool *, struct lease **);
-void parse_address_range6(struct parse *cfile, struct group *group);
-void parse_prefix6(struct parse *cfile, struct group *group);
+void parse_address_range6(struct parse *cfile, struct group *group,
+			  struct ipv6_pond *);
+void parse_prefix6(struct parse *cfile, struct group *group,
+			  struct ipv6_pond *);
 void parse_fixed_prefix6(struct parse *cfile, struct host_decl *host_decl);
 void parse_ia_na_declaration(struct parse *);
 void parse_ia_ta_declaration(struct parse *);
 void parse_ia_pd_declaration(struct parse *);
 void parse_server_duid(struct parse *cfile);
 void parse_server_duid_conf(struct parse *cfile);
+void parse_pool6_statement (struct parse *, struct group *, int);
 
 /* ddns.c */
 int ddns_updates(struct packet *, struct lease *, struct lease *,
 		 struct iasubopt *, struct iasubopt *, struct option_state *);
-int ddns_removals(struct lease *, struct iasubopt *, struct dhcp_ddns_cb *);
+isc_result_t ddns_removals(struct lease *, struct iasubopt *,
+			   struct dhcp_ddns_cb *, isc_boolean_t);
 #if defined (TRACING)
 void trace_ddns_init(void);
 #endif
@@ -2025,11 +2117,6 @@ struct expression *parse_domain_list(struct parse *cfile, int);
 
 
 /* tree.c */
-#if defined (NSUPDATE)
-extern struct __res_state resolver_state;
-extern int resolver_inited;
-#endif
-
 extern struct binding_scope *global_scope;
 pair cons (caddr_t, pair);
 int make_const_option_cache (struct option_cache **, struct buffer **,
@@ -2057,15 +2144,6 @@ int evaluate_expression (struct binding_value **, struct packet *,
 			 struct binding_scope **, struct expression *,
 			 const char *, int);
 int binding_value_dereference (struct binding_value **, const char *, int);
-#if defined (NSUPDATE_OLD)
-int evaluate_dns_expression (ns_updrec **, struct packet *,
-			     struct lease *,
-			     struct client_state *,
-			     struct option_state *,
-			     struct option_state *,
-			     struct binding_scope **,
-			     struct expression *);
-#endif
 int evaluate_boolean_expression (int *,
 				 struct packet *,  struct lease *,
 				 struct client_state *,
@@ -2079,7 +2157,8 @@ int evaluate_data_expression (struct data_string *,
 			      struct option_state *,
 			      struct option_state *,
 			      struct binding_scope **,
-			      struct expression *, const char *, int);
+			      struct expression *,
+			      const char *, int);
 int evaluate_numeric_expression (unsigned long *, struct packet *,
 				 struct lease *, struct client_state *,
 				 struct option_state *, struct option_state *,
@@ -2169,7 +2248,11 @@ unsigned cons_agent_information_options (struct option_state *,
 					 unsigned, unsigned);
 void get_server_source_address(struct in_addr *from,
 			       struct option_state *options,
+			       struct option_state *out_options,
 			       struct packet *packet);
+void setup_server_source_address(struct in_addr *from,
+				 struct option_state *options,
+				 struct packet *packet);
 
 /* dhcpleasequery.c */
 void dhcpleasequery (struct packet *, int);
@@ -2357,7 +2440,7 @@ void get_hw_addr(const char *name, struct hardware *hw);
 /* socket.c */
 #if defined (USE_SOCKET_SEND) || defined (USE_SOCKET_RECEIVE) \
 	|| defined (USE_SOCKET_FALLBACK)
-int if_register_socket(struct interface_info *, int, int *);
+int if_register_socket(struct interface_info *, int, int *, struct in6_addr *);
 #endif
 
 #if defined (USE_SOCKET_FALLBACK) && !defined (USE_SOCKET_SEND)
@@ -2368,7 +2451,7 @@ ssize_t send_fallback (struct interface_info *,
 		       struct in_addr,
 		       struct sockaddr_in *, struct hardware *);
 ssize_t send_fallback6(struct interface_info *, struct packet *,
-		       struct dhcp_packet *, size_t, struct in6_addr,
+		       struct dhcp_packet *, size_t, struct in6_addr *,
 		       struct sockaddr_in6 *, struct hardware *);
 #endif
 
@@ -2404,6 +2487,7 @@ void maybe_setup_fallback (void);
 #endif
 
 void if_register6(struct interface_info *info, int do_multicast);
+void if_register_linklocal6(struct interface_info *info);
 ssize_t receive_packet6(struct interface_info *interface,
 			unsigned char *buf, size_t len,
 			struct sockaddr_in6 *from, struct in6_addr *to_addr,
@@ -2549,7 +2633,6 @@ void interface_trace_setup (void);
 extern struct in_addr limited_broadcast;
 extern int local_family;
 extern struct in_addr local_address;
-extern struct in6_addr local_address6;
 
 extern u_int16_t local_port;
 extern u_int16_t remote_port;
@@ -2676,6 +2759,7 @@ extern char *path_dhclient_script;
 extern int interfaces_requested;
 extern struct data_string default_duid;
 extern int duid_type;
+extern const char *path_dhclient_duid;
 
 extern struct client_config top_level_config;
 
@@ -2727,6 +2811,7 @@ void client_option_envadd (struct option_cache *, struct packet *,
 			   struct binding_scope **, struct universe *, void *);
 void script_write_params (struct client_state *, const char *,
 			  struct client_lease *);
+void script_write_requested (struct client_state *);
 int script_go (struct client_state *);
 void client_envadd (struct client_state *,
 		    const char *, const char *, const char *, ...)
@@ -2749,9 +2834,9 @@ void client_dns_remove(struct client_state *client, struct iaddr *addr);
 
 void dhcpv4_client_assignments(void);
 void dhcpv6_client_assignments(void);
+void form_duid(struct data_string *duid, const char *file, int line);
 
 /* dhc6.c */
-void form_duid(struct data_string *duid, const char *file, int line);
 void dhc6_lease_destroy(struct dhc6_lease **src, const char *file, int line);
 void start_init6(struct client_state *client);
 void start_info_request6(struct client_state *client);
@@ -2775,6 +2860,7 @@ int write_billing_class (struct class *);
 void commit_leases_timeout (void *);
 void commit_leases_readerdry(void *);
 int commit_leases (void);
+int commit_leases_timed (void);
 void db_startup (int);
 int new_lease_file (void);
 int group_writer (struct group_object *);
@@ -2848,6 +2934,7 @@ isc_result_t read_client_conf (void);
 int read_client_conf_file (const char *,
 			   struct interface_info *, struct client_config *);
 void read_client_leases (void);
+void read_client_duid (void);
 void parse_client_statement (struct parse *, struct interface_info *,
 			     struct client_config *);
 int parse_X (struct parse *, u_int8_t *, unsigned);
@@ -2877,21 +2964,18 @@ int icmp_echorequest (struct iaddr *);
 isc_result_t icmp_echoreply (omapi_object_t *);
 
 /* dns.c */
-#if defined (NSUPDATE)
-isc_result_t find_tsig_key (ns_tsig_key **, const char *, struct dns_zone *);
-void tkey_free (ns_tsig_key **);
-#endif
 isc_result_t enter_dns_zone (struct dns_zone *);
 isc_result_t dns_zone_lookup (struct dns_zone **, const char *);
 int dns_zone_dereference (struct dns_zone **, const char *, int);
 #if defined (NSUPDATE)
 #define FIND_FORWARD 0
 #define FIND_REVERSE 1
+isc_result_t find_tsig_key (ns_tsig_key **, const char *, struct dns_zone *);
+void tkey_free (ns_tsig_key **);
 isc_result_t find_cached_zone (dhcp_ddns_cb_t *, int);
 void forget_zone (struct dns_zone **);
 void repudiate_zone (struct dns_zone **);
-//void cache_found_zone (ns_class, char *, struct in_addr *, int);
-int get_dhcid (struct data_string *, int, const u_int8_t *, unsigned);
+int get_dhcid (dhcp_ddns_cb_t *, int, const u_int8_t *, unsigned);
 void dhcid_tolease (struct data_string *, struct data_string *);
 isc_result_t dhcid_fromlease (struct data_string *, struct data_string *);
 isc_result_t ddns_update_fwd(struct data_string *, struct iaddr,
@@ -2900,6 +2984,16 @@ isc_result_t ddns_update_fwd(struct data_string *, struct iaddr,
 isc_result_t ddns_remove_fwd(struct data_string *,
 			     struct iaddr, struct data_string *);
 #endif /* NSUPDATE */
+
+dhcp_ddns_cb_t *ddns_cb_alloc(const char *file, int line);
+void ddns_cb_free (dhcp_ddns_cb_t *ddns_cb, const char *file, int line);
+void ddns_cb_forget_zone (dhcp_ddns_cb_t *ddns_cb);
+isc_result_t
+ddns_modify_fwd(dhcp_ddns_cb_t *ddns_cb, const char *file, int line);
+isc_result_t
+ddns_modify_ptr(dhcp_ddns_cb_t *ddns_cb, const char *file, int line);
+void
+ddns_cancel(dhcp_ddns_cb_t *ddns_cb, const char *file, int line);
 
 /* resolv.c */
 extern char path_resolv_conf [];
@@ -2938,14 +3032,16 @@ int execute_statements (struct binding_value **result,
 			struct client_state *,
 			struct option_state *, struct option_state *,
 			struct binding_scope **,
-			struct executable_statement *);
+			struct executable_statement *,
+			struct on_star *);
 void execute_statements_in_scope (struct binding_value **result,
 				  struct packet *, struct lease *,
 				  struct client_state *,
 				  struct option_state *,
 				  struct option_state *,
 				  struct binding_scope **,
-				  struct group *, struct group *);
+				  struct group *, struct group *,
+				  struct on_star *);
 int executable_statement_dereference (struct executable_statement **,
 				      const char *, int);
 void write_statements (FILE *, struct executable_statement *, int);
@@ -3240,7 +3336,10 @@ void make_binding_state_transition (struct lease *);
 int lease_copy (struct lease **, struct lease *, const char *, int);
 void release_lease (struct lease *, struct packet *);
 void abandon_lease (struct lease *, const char *);
+#if 0
+/* this appears to be unused and I plan to remove it SAR */
 void dissociate_lease (struct lease *);
+#endif
 void pool_timer (void *);
 int find_lease_by_uid (struct lease **, const unsigned char *,
 		       unsigned, const char *, int);
@@ -3262,21 +3361,6 @@ void dump_subnets (void);
 		defined (DEBUG_MEMORY_LEAKAGE_ON_EXIT)
 void free_everything (void);
 #endif
-
-/* nsupdate.c */
-char *ddns_rev_name (struct lease *, struct lease_state *, struct packet *);
-char *ddns_fwd_name (struct lease *, struct lease_state *, struct packet *);
-int nsupdateA (const char *, const unsigned char *, u_int32_t, int);
-int nsupdatePTR (const char *, const unsigned char *, u_int32_t, int);
-void nsupdate (struct lease *, struct lease_state *, struct packet *, int);
-int updateA (const struct data_string *, const struct data_string *,
-	     unsigned int, struct lease *);
-int updatePTR (const struct data_string *, const struct data_string *,
-	       unsigned int, struct lease *);
-int deleteA (const struct data_string *, const struct data_string *,
-	     struct lease *);
-int deletePTR (const struct data_string *, const struct data_string *,
-	       struct lease *);
 
 /* failover.c */
 #if defined (FAILOVER_PROTOCOL)
@@ -3506,9 +3590,13 @@ isc_result_t release_lease6(struct ipv6_pool *pool, struct iasubopt *lease);
 isc_result_t decline_lease6(struct ipv6_pool *pool, struct iasubopt *lease);
 isc_boolean_t lease6_exists(const struct ipv6_pool *pool,
 			    const struct in6_addr *addr);
+isc_boolean_t lease6_usable(struct iasubopt *lease);
+isc_result_t cleanup_lease6(ia_hash_t *ia_table,
+			    struct ipv6_pool *pool,
+			    struct iasubopt *lease,
+			    struct ia_xx *ia);
 isc_result_t mark_lease_unavailble(struct ipv6_pool *pool,
 				   const struct in6_addr *addr);
-
 isc_result_t create_prefix6(struct ipv6_pool *pool,
 			    struct iasubopt **pref,
 			    unsigned int *attempts,
@@ -3522,6 +3610,13 @@ isc_result_t find_ipv6_pool(struct ipv6_pool **pool, u_int16_t type,
 			    const struct in6_addr *addr);
 isc_boolean_t ipv6_in_pool(const struct in6_addr *addr,
 			   const struct ipv6_pool *pool);
+isc_result_t ipv6_pond_allocate(struct ipv6_pond **pond,
+				const char *file, int line);
+isc_result_t ipv6_pond_reference(struct ipv6_pond **pond,
+				 struct ipv6_pond *src,
+				 const char *file, int line);
+isc_result_t ipv6_pond_dereference(struct ipv6_pond **pond,
+				   const char *file, int line);
 
 isc_result_t renew_leases(struct ia_xx *ia);
 isc_result_t release_leases(struct ia_xx *ia);
@@ -3533,20 +3628,14 @@ void mark_hosts_unavailable(void);
 void mark_phosts_unavailable(void);
 void mark_interfaces_unavailable(void);
 
-dhcp_ddns_cb_t *ddns_cb_alloc(const char *file, int line);
-void ddns_cb_free (dhcp_ddns_cb_t *ddns_cb, const char *file, int line);
-void ddns_cb_forget_zone (dhcp_ddns_cb_t *ddns_cb);
-
-//void *key_from_zone(struct dns_zone *zone);
-
-isc_result_t
-ddns_modify_fwd(dhcp_ddns_cb_t *ddns_cb);
-
-isc_result_t
-ddns_modify_ptr(dhcp_ddns_cb_t *ddns_cb);
-
-void
-ddns_cancel(dhcp_ddns_cb_t *ddns_cb);
-
 #define MAX_ADDRESS_STRING_LEN \
    (sizeof("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255"))
+
+/* Find the percentage of count.  We need to try two different
+ * ways to avoid rounding mistakes.
+ */
+#define FIND_PERCENT(count, percent)	\
+	((count) > (INT_MAX / 100) ?	\
+	 ((count) / 100) * (percent) : ((count) * (percent)) / 100)
+
+	

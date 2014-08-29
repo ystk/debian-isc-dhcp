@@ -3,7 +3,7 @@
    Parser for dhclient config and lease files... */
 
 /*
- * Copyright (c) 2004-2011 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2014 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -24,12 +24,6 @@
  *   <info@isc.org>
  *   https://www.isc.org/
  *
- * This software has been written for Internet Systems Consortium
- * by Ted Lemon in cooperation with Vixie Enterprises and Nominum, Inc.
- * To learn more about Internet Systems Consortium, see
- * ``https://www.isc.org/''.  To learn more about Vixie Enterprises,
- * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
- * ``http://www.nominum.com''.
  */
 
 #include "dhcpd.h"
@@ -59,9 +53,17 @@ isc_result_t read_client_conf ()
 {
 	struct client_config *config;
 	struct interface_info *ip;
-	struct parse *parse;
 	isc_result_t status;
 	unsigned code;
+
+        /* 
+         * TODO: LATER constant is very undescriptive. We should review it and
+         * change it to something more descriptive or even better remove it
+         * completely as it is currently not used.
+         */
+#ifdef LATER
+        struct parse *parse = NULL;
+#endif
 
 	/* Initialize the default request list. */
 	memset(default_requested_options, 0, sizeof(default_requested_options));
@@ -159,7 +161,6 @@ isc_result_t read_client_conf ()
 					(struct interface_info *)0,
 					&top_level_config);
 
-	parse = NULL;
 	if (status != ISC_R_SUCCESS) {
 		;
 #ifdef LATER
@@ -234,7 +235,7 @@ int read_client_conf_file (const char *name, struct interface_info *ip,
 			break;
 		parse_client_statement (cfile, ip, client);
 	} while (1);
-	token = next_token (&val, (unsigned *)0, cfile);
+	skip_token(&val, (unsigned *)0, cfile);
 	status = (cfile -> warnings_occurred
 		  ? DHCP_R_BADPARSE
 		  : ISC_R_SUCCESS);
@@ -242,6 +243,45 @@ int read_client_conf_file (const char *name, struct interface_info *ip,
 	return status;
 }
 
+
+/* lease-file :== client-lease-statements END_OF_FILE
+   client-lease-statements :== <nil>
+		     | client-lease-statements LEASE client-lease-statement
+ * This routine looks through a lease file and only tries to parse
+ * the duid statements.
+ */
+
+void read_client_duid ()
+{
+	int file;
+	isc_result_t status;
+	struct parse *cfile;
+	const char *val;
+	int token;
+
+	/* Open the lease file.   If we can't open it, just return -
+	   we can safely trust the server to remember our state. */
+	if ((file = open (path_dhclient_duid, O_RDONLY)) < 0)
+		return;
+
+	cfile = NULL;
+	status = new_parse(&cfile, file, NULL, 0, path_dhclient_duid, 0);
+	if (status != ISC_R_SUCCESS || cfile == NULL)
+		return;
+
+	while ((token = next_token(&val, NULL, cfile)) != END_OF_FILE) {
+		/*
+		 * All we care about is DUIDs - if we get anything else
+		 * just toss it and continue looking for DUIDs until we
+		 * run out of file.  
+		 */
+		if (token == DEFAULT_DUID) {
+			parse_client_default_duid(cfile);
+		}
+	}
+
+	end_parse(&cfile);
+}
 
 /* lease-file :== client-lease-statements END_OF_FILE
    client-lease-statements :== <nil>
@@ -334,7 +374,7 @@ void parse_client_statement (cfile, ip, config)
 
 	switch (peek_token (&val, (unsigned *)0, cfile)) {
 	      case INCLUDE:
-		next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		token = next_token (&val, (unsigned *)0, cfile);
 		if (token != STRING) {
 			parse_warn (cfile, "filename string expected.");
@@ -348,7 +388,7 @@ void parse_client_statement (cfile, ip, config)
 		return;
 		
 	      case KEY:
-		next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		if (ip) {
 			/* This may seem arbitrary, but there's a reason for
 			   doing it: the authentication key database is not
@@ -371,7 +411,7 @@ void parse_client_statement (cfile, ip, config)
 
 	      case TOKEN_ALSO:
 		/* consume ALSO */
-		next_token(&val, NULL, cfile);
+		skip_token(&val, NULL, cfile);
 
 		/* consume type of ALSO list. */
 		token = next_token(&val, NULL, cfile);
@@ -439,7 +479,7 @@ void parse_client_statement (cfile, ip, config)
 		/* REQUIRE can either start a policy statement or a
 		   comma-separated list of names of required options. */
 	      case REQUIRE:
-		next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		token = peek_token (&val, (unsigned *)0, cfile);
 		if (token == AUTHENTICATION) {
 			policy = P_REQUIRE;
@@ -449,22 +489,22 @@ void parse_client_statement (cfile, ip, config)
 		return;
 
 	      case IGNORE:
-		next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		policy = P_IGNORE;
 		goto do_policy;
 
 	      case ACCEPT:
-		next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		policy = P_ACCEPT;
 		goto do_policy;
 
 	      case PREFER:
-		next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		policy = P_PREFER;
 		goto do_policy;
 
 	      case DONT:
-		next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		policy = P_DONT;
 		goto do_policy;
 
@@ -497,8 +537,7 @@ void parse_client_statement (cfile, ip, config)
 		break;
 
 	      case OPTION:
-		token = next_token (&val, (unsigned *)0, cfile);
-
+		skip_token(&val, (unsigned *)0, cfile);
 		token = peek_token (&val, (unsigned *)0, cfile);
 		if (token == SPACE) {
 			if (ip) {
@@ -549,12 +588,12 @@ void parse_client_statement (cfile, ip, config)
 		return;
 
 	      case MEDIA:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		parse_string_list (cfile, &config -> media, 1);
 		return;
 
 	      case HARDWARE:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		if (ip) {
 			parse_hardware_param (cfile, &ip -> hw_address);
 		} else {
@@ -565,7 +604,7 @@ void parse_client_statement (cfile, ip, config)
 		return;
 
 	      case ANYCAST_MAC:
-		token = next_token(&val, NULL, cfile);
+		skip_token(&val, NULL, cfile);
 		if (ip != NULL) {
 			parse_hardware_param(cfile, &ip->anycast_mac_addr);
 		} else {
@@ -576,29 +615,29 @@ void parse_client_statement (cfile, ip, config)
 		return;
 
 	      case REQUEST:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		if (config -> requested_options == default_requested_options)
 			config -> requested_options = NULL;
 		parse_option_list (cfile, &config -> requested_options);
 		return;
 
 	      case TIMEOUT:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		parse_lease_time (cfile, &config -> timeout);
 		return;
 
 	      case RETRY:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		parse_lease_time (cfile, &config -> retry_interval);
 		return;
 
 	      case SELECT_TIMEOUT:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		parse_lease_time (cfile, &config -> select_interval);
 		return;
 
 	      case OMAPI:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		token = next_token (&val, (unsigned *)0, cfile);
 		if (token != PORT) {
 			parse_warn (cfile,
@@ -624,7 +663,7 @@ void parse_client_statement (cfile, ip, config)
 		return;
 		
 	      case DO_FORWARD_UPDATE:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		token = next_token (&val, (unsigned *)0, cfile);
 		if (!strcasecmp (val, "on") ||
 		    !strcasecmp (val, "true"))
@@ -641,32 +680,32 @@ void parse_client_statement (cfile, ip, config)
 		return;
 
 	      case REBOOT:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		parse_lease_time (cfile, &config -> reboot_timeout);
 		return;
 
 	      case BACKOFF_CUTOFF:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		parse_lease_time (cfile, &config -> backoff_cutoff);
 		return;
 
 	      case INITIAL_INTERVAL:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		parse_lease_time (cfile, &config -> initial_interval);
 		return;
 
 	      case INITIAL_DELAY:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		parse_lease_time (cfile, &config -> initial_delay);
 		return;
 
 	      case SCRIPT:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		parse_string (cfile, &config -> script_name, (unsigned *)0);
 		return;
 
 	      case VENDOR:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		token = next_token (&val, (unsigned *)0, cfile);
 		if (token != OPTION) {
 			parse_warn (cfile, "expecting 'vendor option space'");
@@ -701,14 +740,14 @@ void parse_client_statement (cfile, ip, config)
 		return;
 
 	      case INTERFACE:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		if (ip)
 			parse_warn (cfile, "nested interface declaration.");
 		parse_interface_declaration (cfile, config, (char *)0);
 		return;
 
 	      case PSEUDO:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		token = next_token (&val, (unsigned *)0, cfile);
 		name = dmalloc (strlen (val) + 1, MDL);
 		if (!name)
@@ -718,17 +757,17 @@ void parse_client_statement (cfile, ip, config)
 		return;
 		
 	      case LEASE:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		parse_client_lease_statement (cfile, 1);
 		return;
 
 	      case ALIAS:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		parse_client_lease_statement (cfile, 2);
 		return;
 
 	      case REJECT:
-		token = next_token (&val, (unsigned *)0, cfile);
+		skip_token(&val, (unsigned *)0, cfile);
 		parse_reject_statement (cfile, config);
 		return;
 
@@ -799,7 +838,7 @@ parse_option_list(struct parse *cfile, struct option ***list)
 		}
 		if (!is_identifier (token)) {
 			parse_warn (cfile, "%s: expected option name.", val);
-			token = next_token (&val, (unsigned *)0, cfile);
+			skip_token(&val, (unsigned *)0, cfile);
 			skip_to_semi (cfile);
 			return 0;
 		}
@@ -915,7 +954,7 @@ void parse_interface_declaration (cfile, outer_config, name)
 			break;
 		parse_client_statement (cfile, ip, client -> config);
 	} while (1);
-	token = next_token (&val, (unsigned *)0, cfile);
+	skip_token(&val, (unsigned *)0, cfile);
 }
 
 int interface_or_dummy (struct interface_info **pi, const char *name)
@@ -1042,7 +1081,7 @@ void parse_client_lease_statement (cfile, is_static)
 			break;
 		parse_client_lease_declaration (cfile, lease, &ip, &client);
 	} while (1);
-	token = next_token (&val, (unsigned *)0, cfile);
+	skip_token(&val, (unsigned *)0, cfile);
 
 	/* If the lease declaration didn't include an interface
 	   declaration that we recognized, it's of no use to us. */

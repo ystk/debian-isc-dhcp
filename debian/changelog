@@ -1,51 +1,140 @@
-isc-dhcp (4.2.2.dfsg.1-5+deb70u6) stable-proposed-updates; urgency=medium
+isc-dhcp (4.3.1-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Avoid divide by zero issue (closes: #694650).
+  * Correct typo in dhclient-script.linux (closes: #748272).
+  * Ensure dhcpd.leases exists for the server init script (closes: #720860).
+
+ -- Michael Gilbert <mgilbert@debian.org>  Wed, 13 Aug 2014 23:36:21 +0000
+
+isc-dhcp (4.3.1~b1-1) experimental; urgency=medium
+
+  * New upstream beta release.
+  * Add debian/README.source.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 19 Jul 2014 22:06:23 +0000
+
+isc-dhcp (4.3.0+dfsg-2) unstable; urgency=medium
+
+  * Ship dhcp-lease-list (closes: #741488).
+  * Fix lease removal in postrm (closes: #724033).
+  * Add upstream public signing key for uscan verification.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Mon, 09 Jun 2014 01:07:09 +0000
+
+isc-dhcp (4.3.0+dfsg-1) unstable; urgency=medium
+
+  * New upstream stable release.
+  * Update debian/copyright to format 1.0.
+  * Depend on iproute2 instead of iproute (closes: #742151).
+  * Depend on freebsd-net-tools for kfreebsd (closes: #738934).
+  * Acknowledge and apply the non-maintainer upload (closes: #747017).
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 24 May 2014 21:54:01 +0000
+
+isc-dhcp (4.3.0a1-2.1) experimental; urgency=medium
+
+  * Non-Maintainer Upload
+  * rules: Fix bind patching.
+  * bind-patches/hurd: Add upstream patch to fix Hurd build.
+  * rules: Select proper backends in the Hurd case.
+  * dhclient-script.hurd, dhclient-script.hurd.udeb,
+    rfc3442-classless-routes.hurd: Add Hurd scripts.
+  * Closes: #616290.
+
+ -- Samuel Thibault <sthibault@debian.org>  Sun, 06 Apr 2014 22:14:44 +0200
+
+isc-dhcp (4.3.0a1-2) experimental; urgency=medium
+
+  * Remove unused template.
+  * Remove unnecessary breaks.
+  * Fix version control fields.
+  * Escape hyphens in manpages.
+  * Enable all build hardening flags.
+  * Fix init functions lintian warning.
+  * Create the /var/lib/dhcp directory (closes: #734773).
+
+ -- Michael Gilbert <mgilbert@debian.org>  Fri, 10 Jan 2014 04:00:42 +0000
+
+isc-dhcp (4.3.0a1-1) experimental; urgency=medium
+
+  * New upstream release.
+  * Use debhelper 9 and and simplified debian rules.
+  * Use a single package for debugging symbols.
+  * Bump standards to 3.9.5.
+  * Update watch file.
+  * Use dh-autoreconf.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 21 Dec 2013 22:04:30 +0000
+
+isc-dhcp (4.2.4-7) unstable; urgency=low
 
   * Set --with-ldapcrypto to restore openssl support (closes: #692808).
+    - Thanks to Christian Hoffmann and Stéphane Graber.
 
- -- Michael Gilbert <mgilbert@debian.org>  Mon, 27 May 2013 20:54:36 +0000
+ -- Michael Gilbert <mgilbert@debian.org>  Mon, 27 May 2013 20:35:09 +0000
 
-isc-dhcp (4.2.2.dfsg.1-5+deb70u5) testing-proposed-updates; urgency=medium
-
-  * Use patch instead of quilt for embedded bind patches.
-
- -- Michael Gilbert <mgilbert@debian.org>  Fri, 12 Apr 2013 02:06:54 +0000
-
-isc-dhcp (4.2.2.dfsg.1-5+deb70u4) testing-proposed-updates; urgency=high
+isc-dhcp (4.2.4-6) unstable; urgency=high
 
   * Fix cve-2013-2494: issues with regular expression handling in the embedded
     bind library (closes: #704426).
 
- -- Michael Gilbert <mgilbert@debian.org>  Mon, 01 Apr 2013 00:41:48 +0000
+ -- Michael Gilbert <mgilbert@debian.org>  Sun, 31 Mar 2013 23:52:58 +0000
 
-isc-dhcp (4.2.2.dfsg.1-5+deb70u3) testing-proposed-updates; urgency=medium
+isc-dhcp (4.2.4-5) unstable; urgency=medium
 
-  * Run exit hooks when "dhclient -1" fails (closes: #486520).
-  * Add dhcp6.name-servers and dhcp6.domain-search to the default request
-    options in dhclient.conf (closes: #693315).
   * Handle dhclient.conf left behind during a prior lenny->squeeze upgrade,
     upgrade it now to avoid an unnecessary conffile prompt (closes: #698582).
     - Thanks to Gregor Herrmann for the patch.
   * Also, do not copy dhclient.conf from /etc/dhcp3 anymore (closes: #700363).
 
- -- Michael Gilbert <mgilbert@debian.org>  Sat, 16 Feb 2013 20:40:46 +0000
+ -- Michael Gilbert <mgilbert@debian.org>  Tue, 12 Feb 2013 03:14:13 +0000
 
-isc-dhcp (4.2.2.dfsg.1-5+deb70u2) testing-proposed-updates; urgency=high
+isc-dhcp (4.2.4-4) unstable; urgency=medium
 
-  * Non-maintainer upload by the Security Team.
-  * Fix CVE-2012-2248: dhclient sets a PATH that is influenced by the
-    location of the build directory.
+  * Run exit hooks when "dhclient -1" fails (closes: #486520).
+  * Add dhcp6.name-servers and dhcp6.domain-search to the default request
+    options in dhclient.conf (closes: #693315).
 
- -- Raphael Geissert <geissert@debian.org>  Sun, 14 Oct 2012 15:48:19 -0500
+ -- Michael Gilbert <mgilbert@debian.org>  Thu, 13 Dec 2012 21:44:18 -0500
 
-isc-dhcp (4.2.2.dfsg.1-5+deb70u1) testing-proposed-updates; urgency=high
+isc-dhcp (4.2.4-3) unstable; urgency=high
 
-  * Correct multiple security issues (closes: #686174)
-    - cve-2012-3570: buffer overflow via large hardware address lengths.
+  * Maintainer security upload.
+  * Fix cve-2012-2248: as of 4.2.x the build system prefix now gets included
+    in CLIENT_PATH.  This has security implications since the build system's
+    source path is now included in dhclient's search PATH on users' systems,
+    so sanitize the prefix to not include build system paths (closes: #690532)
+    - Patch thanks to Raphael Geissert
+
+ -- Michael Gilbert <mgilbert@debian.org>  Mon, 15 Oct 2012 14:18:07 -0400
+
+isc-dhcp (4.2.4-2) unstable; urgency=low
+
+  * Fix multiple security issues (closes: #686174)
+    - cve-2012-3570: buffer overflow via lanrge hardware address length.
     - cve-2012-3571: denial-of-service via zero-length packets.
     - cve-2012-3954: two potential memory leaks.
     - cve-2012-3955: server abort due to certain lease time changes.
 
- -- Michael Gilbert <mgilbert@debian.org>  Fri, 14 Sep 2012 00:26:44 -0400
+ -- Michael Gilbert <mgilbert@debian.org>  Fri, 14 Sep 2012 00:46:11 -0400
+
+isc-dhcp (4.2.4-1) unstable; urgency=low
+
+  * New upstream release
+  * debian/control: reformatted Uploaders so that dch doesn't think I'm making
+    NMUs
+  * debian/rules: do a clean between the LDAP-enabled build and the
+    non-LDAP-enabled one, so that no LDAP-related artefacts are accidently
+    incorporated into the non-LDAP build
+  * debian/dhclient-script.*: conditionalise the chown/chmod of the new
+    resolv.conf on the existence of the old one (closes: #595400)
+  * debian/dhclient-script.linux: comply with RFC 3442 and ignore
+    the routers option if the rfc3442-classless-static-routes option is present
+    (closes: #592735)
+  * debian/dhclient-script.kfreebsd: fix subnet mask handling (closes: #677985)
+
+ -- Andrew Pollock <apollock@debian.org>  Sat, 09 Jun 2012 14:01:05 -0700
 
 isc-dhcp (4.2.2.dfsg.1-5) unstable; urgency=medium
 

@@ -3,6 +3,7 @@
    Persistent database management routines for DHCPD... */
 
 /*
+ * Copyright (c) 2012-2014 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 2004-2010 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
@@ -24,17 +25,13 @@
  *   <info@isc.org>
  *   https://www.isc.org/
  *
- * This software has been written for Internet Systems Consortium
- * by Ted Lemon in cooperation with Vixie Enterprises and Nominum, Inc.
- * To learn more about Internet Systems Consortium, see
- * ``https://www.isc.org/''.  To learn more about Vixie Enterprises,
- * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
- * ``http://www.nominum.com''.
  */
 
 #include "dhcpd.h"
 #include <ctype.h>
 #include <errno.h>
+
+#define LEASE_REWRITE_PERIOD 3600
 
 static isc_result_t write_binding_scope(FILE *db_file, struct binding *bnd,
 					char *prepend);
@@ -64,10 +61,9 @@ write_binding_scope(FILE *db_file, struct binding *bnd, char *prepend) {
 				errno = 0;
 				fprintf(db_file, "%sset %s = \"%s\";",
 					prepend, bnd->name, s);
+				dfree(s, MDL);
 				if (errno)
 					return ISC_R_FAILURE;
-
-				dfree(s, MDL);
 			} else {
 			    return ISC_R_FAILURE;
 			}
@@ -263,21 +259,22 @@ int write_lease (lease)
 		} else
 			++errors;
 	}
-	if (lease -> on_expiry) {
+	if (lease->on_star.on_expiry) {
 		errno = 0;
 		fprintf (db_file, "\n  on expiry%s {",
-			 lease -> on_expiry == lease -> on_release
+			 lease->on_star.on_expiry == lease->on_star.on_release
 			 ? " or release" : "");
-		write_statements (db_file, lease -> on_expiry, 4);
+		write_statements (db_file, lease->on_star.on_expiry, 4);
 		/* XXX */
 		fprintf (db_file, "\n  }");
 		if (errno)
 			++errors;
 	}
-	if (lease -> on_release && lease -> on_release != lease -> on_expiry) {
+	if (lease->on_star.on_release &&
+	    lease->on_star.on_release != lease->on_star.on_expiry) {
 		errno = 0;
 		fprintf (db_file, "\n  on release {");
-		write_statements (db_file, lease -> on_release, 4);
+		write_statements (db_file, lease->on_star.on_release, 4);
 		/* XXX */
 		fprintf (db_file, "\n  }");
 		if (errno)
@@ -641,6 +638,29 @@ write_ia(const struct ia_xx *ia) {
 				
 		}
 
+		if (iasubopt->on_star.on_expiry) {
+			if (fprintf(db_file, "\n    on expiry%s {",
+				    iasubopt->on_star.on_expiry ==
+				    iasubopt->on_star.on_release
+				    ? " or release" : "") < 0)
+				goto error_exit;
+			write_statements(db_file,
+					 iasubopt->on_star.on_expiry, 6);
+			if (fprintf(db_file, "\n    }") < 0) 
+				goto error_exit;
+		}
+
+		if (iasubopt->on_star.on_release &&
+		    iasubopt->on_star.on_release !=
+		    iasubopt->on_star.on_expiry) {
+			if (fprintf(db_file, "\n    on release {") < 0)
+				goto error_exit;
+			write_statements(db_file,
+					 iasubopt->on_star.on_release, 6);
+			if (fprintf(db_file, "\n    }") < 0)
+				goto error_exit;
+		}
+
 		if (fprintf(db_file, "\n  }\n") < 0)
                         goto error_exit;
 	}
@@ -988,12 +1008,13 @@ int commit_leases ()
 	   We need to do this even if we're rewriting the file below,
 	   just in case the rewrite fails. */
 	if (fflush (db_file) == EOF) {
-		log_info ("commit_leases: unable to commit: %m");
-		return 0;
+		log_info("commit_leases: unable to commit, fflush(): %m");
+		return (0);
 	}
-	if (fsync (fileno (db_file)) < 0) {
-		log_info ("commit_leases: unable to commit: %m");
-		return 0;
+	if ((dont_use_fsync == 0) &&
+	    (fsync(fileno (db_file)) < 0)) {
+		log_info ("commit_leases: unable to commit, fsync(): %m");
+		return (0);
 	}
 
 	/* send out all deferred ACKs now */
@@ -1002,12 +1023,27 @@ int commit_leases ()
 	/* If we haven't rewritten the lease database in over an
 	   hour, rewrite it now.  (The length of time should probably
 	   be configurable. */
-	if (count && cur_time - write_time > 3600) {
+	if (count && cur_time - write_time > LEASE_REWRITE_PERIOD) {
 		count = 0;
 		write_time = cur_time;
-		new_lease_file ();
+		new_lease_file();
 	}
-	return 1;
+	return (1);
+}
+
+/*
+ * rewrite the lease file about once an hour
+ * This is meant as a quick patch for ticket 24887.  It allows
+ * us to rotate the v6 lease file without adding too many fsync()
+ * calls.  In the future wes should revisit this area and add
+ * something similar to the delayed ack code for v4.
+ */
+int commit_leases_timed()
+{
+	if ((count != 0) && (cur_time - write_time > LEASE_REWRITE_PERIOD)) {
+		return (commit_leases());
+	}
+	return (1);
 }
 
 void db_startup (testp)
@@ -1021,7 +1057,11 @@ void db_startup (testp)
 		/* Read in the existing lease file... */
 		status = read_conf_file (path_dhcpd_db,
 					 (struct group *)0, 0, 1);
-		/* XXX ignore status? */
+		if (status != ISC_R_SUCCESS) {
+			/* XXX ignore status? */
+			;
+		}
+
 #if defined (TRACING)
 	}
 #endif
