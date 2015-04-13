@@ -5,17 +5,18 @@ Maintainer: Debian ISC DHCP maintainers <pkg-dhcp-devel@lists.alioth.debian.org>
 Uploaders: Andrew Pollock <apollock@debian.org>, Michael Gilbert <mgilbert@debian.org>
 Vcs-Git: git://anonscm.debian.org/pkg-dhcp/isc-dhcp.git
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-dhcp/isc-dhcp.git;a=summary
+Homepage: http://www.isc.org
 Build-Depends:
  groff,
- quilt,
  pkg-config,
  po-debconf,
  libssl-dev,
  libldap2-dev,
+ libbind-export-dev (>= 1:9.9.5.dfsg-4.3),
  dh-autoreconf,
  debhelper (>= 9),
  dpkg-dev (>= 1.13.2),
-Standards-Version: 3.9.5
+Standards-Version: 3.9.6
 
 Package: isc-dhcp-server
 Priority: optional
@@ -46,7 +47,6 @@ Priority: extra
 Architecture: any
 Depends:
  ${misc:Depends},
- ${shlibs:Depends},
  isc-dhcp-dbg (= ${binary:Version}),
 Description: ISC DHCP server for automatic IP address assignment (server debug)
  This is the server from the Internet Software Consortium's implementation of
@@ -60,7 +60,6 @@ Priority: extra
 Architecture: any
 Depends:
  ${misc:Depends},
- ${shlibs:Depends},
  debianutils (>= 2.8.2),
  isc-dhcp-common (= ${binary:Version}),
  lsb-base,
@@ -131,7 +130,7 @@ Suggests:
  avahi-autoipd
 Provides:
  dhcp-client,
-Description: ISC DHCP client
+Description: DHCP client for automatically obtaining an IP address
  This is the Internet Software Consortium's DHCP client. 
  .
  Dynamic Host Configuration Protocol (DHCP) is a protocol like BOOTP
@@ -150,7 +149,6 @@ Priority: extra
 Architecture: any
 Depends:
  ${misc:Depends},
- ${shlibs:Depends},
  isc-dhcp-dbg (= ${binary:Version}),
 Description: ISC DHCP server for automatic IP address assignment (client debug)
  This is the client from the Internet Software Consortium's implementation of
@@ -163,10 +161,9 @@ Priority: extra
 Architecture: any
 Section: debian-installer
 Depends:
- ${shlibs:Depends}
-XC-Package-Type: udeb
+ ${shlibs:Depends},
+Package-Type: udeb
 Description: ISC DHCP Client for debian-installer
- dhcp-client-udeb is a minimal dhcp package used by the debian-installer.
 
 Package: isc-dhcp-relay
 Priority: optional
@@ -192,7 +189,6 @@ Priority: extra
 Architecture: any
 Depends:
  ${misc:Depends},
- ${shlibs:Depends},
  isc-dhcp-dbg (= ${binary:Version}),
 Description: ISC DHCP server for automatic IP address assignment (relay debug)
  This is the relay from the Internet Software Consortium's implementation of
