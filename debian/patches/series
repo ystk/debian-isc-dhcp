@@ -1,6 +1,7 @@
 dhclient-script-exit-status.patch
 dhclient-exit-hook.patch
 dhclient-dividebyzero.patch
+dhclient-64bit-time.patch
 
 no-loopback-checksum.patch
 
@@ -9,3 +10,5 @@ spelling-error.patch
 manpage-hyphens.patch
 
 system-bind.patch
+
+CVE-2015-8605.patch
