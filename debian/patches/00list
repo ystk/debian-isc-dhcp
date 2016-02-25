@@ -17,6 +17,7 @@ CVE-2011-0997
 security-20110810
 CVE-2012-3571_CVE-2012-3954
 CVE-2011-4539_CVE-2012-3955
+CVE-2015-8605
 
 # must be applied before the LDAP stuff
 no-libcrypto
@@ -25,3 +26,5 @@ no-libcrypto
 dhcp-4.1.0-ldap-docs
 dhcp-4.1.0-ldap-code
 
+# fix build when gcc option -Werror is used
+drop_unused_vars_from_ldap-c.dpatch

@@ -1,0 +1,53 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## drop_unused_vars_from_ldap-c.dpatch by <mike.gabriel@das-netzwerkteam.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Fix build when gcc option -Werror is used.
+
+@DPATCH@
+--- a/server/ldap.c	2016-01-14 21:39:38.000000000 +0100
++++ b/server/ldap.c	2016-01-14 21:41:52.110259199 +0100
+@@ -1201,7 +1201,6 @@
+      Needs schema change.
+    */
+   LDAPMessage * newres, * newent;
+-  struct ldap_config_stack *ns;
+   char **tempstr;
+   int i, j, ret;
+ #if defined (DEBUG_LDAP)
+@@ -1437,7 +1436,7 @@
+   char **objectClass, *dn;
+   struct ldap_config_stack *entry;
+   LDAPMessage *ent, *res, *entfirst, *resfirst;
+-  int i, j, ignore, found;
++  int i, ignore, found;
+   int ret, parsedn = 1;
+ 
+   if (ld == NULL)
+@@ -1899,7 +1898,7 @@
+                          int type, struct host_decl *host,
+                          struct class **class)
+ {
+-  int i, declaration, lease_limit;
++  int declaration, lease_limit;
+   char option_buffer[8192];
+   enum dhcp_token token;
+   struct parse *cfile;
+@@ -2005,7 +2004,7 @@
+ find_haddr_in_ldap (struct host_decl **hp, int htype, unsigned hlen,
+                     const unsigned char *haddr, const char *file, int line)
+ {
+-  char buf[128], *type_str, **tempstr, *addr_str;
++  char buf[128], *type_str;
+   LDAPMessage * res, *ent;
+   struct host_decl * host;
+   isc_result_t status;
+@@ -2193,7 +2192,7 @@
+                        struct data_string *data)
+ {
+   LDAPMessage * res, * ent;
+-  int i, ret, lease_limit;
++  int ret, lease_limit;
+   isc_result_t status;
+   ldap_dn_node *curr;
+   char buf[1024];
