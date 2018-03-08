@@ -12,3 +12,7 @@ manpage-hyphens.patch
 system-bind.patch
 
 CVE-2015-8605.patch
+
+CVE-2017-3144.patch
+CVE-2018-5733.patch
+CVE-2018-5732.patch
