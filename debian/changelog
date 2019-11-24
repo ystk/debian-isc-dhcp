@@ -1,3 +1,12 @@
+isc-dhcp (4.3.1-6+deb8u4) jessie-security; urgency=high
+
+  * Non-maintainer upload by the LTS Team. 
+  * CVE-2016-2774
+    Limit number of simultaneous open TCP connections to OMAPI port of
+    the server in order to avoid a denial of service.
+
+ -- Thorsten Alteholz <debian@alteholz.de>  Sat, 23 Nov 2019 19:03:02 +0100
+
 isc-dhcp (4.3.1-6+deb8u3) jessie-security; urgency=high
 
   * Non-maintainer upload by the Security Team.
