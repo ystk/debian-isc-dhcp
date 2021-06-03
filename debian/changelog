@@ -1,3 +1,11 @@
+isc-dhcp (4.3.1-6+deb8u5) jessie-security; urgency=medium
+
+  * Non-maintainer upload by the ELTS Team.
+  * CVE-2021-25217: denial of service in server and client via application
+    crash when parsing lease information.
+
+ -- Emilio Pozuelo Monfort <pochu@debian.org>  Thu, 03 Jun 2021 12:01:15 +0200
+
 isc-dhcp (4.3.1-6+deb8u4) jessie-security; urgency=high
 
   * Non-maintainer upload by the LTS Team. 
